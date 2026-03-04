@@ -1,7 +1,15 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"log"
+	"net/http"
+)
 
 func main() {
-	fmt.Println("Hello, Super Blotto!")
+	http.HandleFunc("/register", handleRegister)
+
+	addr := ":8080"
+	fmt.Printf("Server listening on %s\n", addr)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
