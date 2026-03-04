@@ -28,5 +28,31 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+*.whl
+.python-version
+venv/
+.venv/
+env/
+*.pyo
+*.pyd
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
