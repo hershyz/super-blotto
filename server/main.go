@@ -8,8 +8,13 @@ import (
 
 func main() {
 	http.Handle("/register", handleRegister())
-	http.Handle("/move", validate(handleMove()))
-	http.Handle("/start", adminOnly(handleStart()))
+
+	http.Handle("/move", validate(gs.handleMove()))
+	http.Handle("/join", validate(gs.handleJoin()))
+	http.Handle("/leave", validate(gs.handleLeave()))
+
+	http.Handle("/start", adminOnly(gs.handleStart()))
+	http.Handle("/lobby", adminOnly(gs.handleLobby()))
 
 	addr := ":8080"
 	fmt.Printf("Server listening on %s\n", addr)

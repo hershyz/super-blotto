@@ -1,157 +1,88 @@
 package main
 
-import (
-	"errors"
-	"net/http"
-	"sync"
-	"time"
-)
-
-var ErrUsernameTaken = errors.New("username already taken")
-
-const (
-	GridHeight = 10
-	GridWidth = 10
-	InitialCommandPoints = 1000
-	TotalRounds = 10
-	TimePerRound = 30
-)
-
-type GamePhase int
-
-const (
-	Lobby GamePhase = iota
-	Playing
-	Resolving
-	Finished
-)
-
 type CellData struct {
-	PointsA int
-	PointsB int
+	Points [2]int
 }
  
 type Game struct {
-	mu 						sync.RWMutex
 	ID 						int
-	PlayerA 			*Player
-	PlayerB 			*Player
+	Players				[2]*Player
+	CommandPoints	[2]int
 	Board 				[GridHeight][GridWidth]CellData
-	Round 				int
-	RoundEndTime	time.Time
-	Phase 				GamePhase
 }
 
-type Player struct {
-	Token 				string
-	Username 			string
-	CommandPoints int
-	GameID				int
-}
+// All functions are called assuming the caller holds the gs.mu lock
 
-// All in-memory game state. mu is used to protect accesses to the
-// Players, TokenStore, and Leaderboard maps, and is used to protect
-// surface level accesses to the Game map. Further access to specific 
-// games require grabbing individual game locks.
-type GameState struct {
-	mu          sync.RWMutex
-	Started 		bool
-	NextGameID	int
+func (g *Game) generatePoints(row, col int, role PlayerRole) {
+	for _, d := range dirs {
+		nr := row + d[0]
+		nc := col + d[1]
 
-	Players     map[string]*Player // Token -> *Player
-	WaitingPlayers []*Player // Players Waiting to be paired
-	Games       map[int]*Game // GameID -> *Game
-	Leaderboard []*Player
+		if nr < 0 || nr >= GridHeight ||
+		nc < 0 || nc >= GridWidth {
+			continue
+		}
 
-	UsernameToTokens map[string]string  // Username 	-> Token
-	TokensToUsername map[string]string  // Token 		-> Username
-}
-
-var gs = &GameState{
-	Players:   make(map[string]*Player), 
-	UsernameToTokens: make(map[string]string),
-	TokensToUsername: make(map[string]string),
-}
-
-func registerPlayer(username, token string) (error) {
-	gs.mu.Lock()
-	defer gs.mu.Unlock()
-
-	if _, exists := gs.UsernameToTokens[username]; exists {
-		return ErrUsernameTaken
+		g.CommandPoints[role] += 5
 	}
-
-	p := &Player{
-		Token: 					token,
-		Username:      	username,
-		CommandPoints: 	InitialCommandPoints,
-	}
-
-	gs.Players[token] = p
-	gs.WaitingPlayers = append(gs.WaitingPlayers, p)
-	gs.Leaderboard = append(gs.Leaderboard, p)
-
-	gs.TokensToUsername[token] = username
-	gs.UsernameToTokens[username] = token
-
-	return nil
 }
 
-func (g *Game) startRound() (time.Time) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	
-	g.RoundEndTime = time.Now().Add(time.Second * TimePerRound)
-	
+func (g *Game) move(row, col, reqCommandPoints int, role PlayerRole) (error) {
+		// This is a game state agnostic check, but I put it here because the code looks better. Can put it in the game state agnostic checks section
+		if reqCommandPoints < 0 {
+			return ErrNegativeCommandPoints
+		}
 
+		if g.CommandPoints[role] < reqCommandPoints {
+			return ErrInsufficientCommandPoints
+		}
 
-	return g.RoundEndTime
+		g.CommandPoints[role] -= reqCommandPoints
+		g.Board[row][col].Points[role] += reqCommandPoints
+		return nil
 }
 
 func (g *Game) endRound() {
-	g.mu.Lock()
-	defer g.mu.Unlock()
+	for row := 0; row < GridHeight; row++ {
+		for col := 0; col < GridWidth; col++ {
+			points := g.Board[row][col].Points
 
-	// TODO: Round end logic
-}
-
-func handleStart() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gs.mu.Lock()
-		defer gs.mu.Unlock()
-
-		for i := 0; i + 1 < len(gs.WaitingPlayers); i += 2 {
-			gs.NextGameID++
-
-			pa := gs.WaitingPlayers[i]
-			pb := gs.WaitingPlayers[i+1]
-			gs.WaitingPlayers = gs.WaitingPlayers[2:]
-			
-			gs.Games[gs.NextGameID] = &Game{
-				ID: gs.NextGameID,
-				PlayerA: pa,
-				PlayerB: pb,
-				Phase: Lobby,
+			if points[Player0] > points[Player1] {
+				g.generatePoints(row, col, Player0)
+			} else if points[Player0] < points[Player1] {
+				g.generatePoints(row, col, Player1)
+			} else {
+				continue
 			}
-
-			pa.GameID = gs.NextGameID
-			pb.GameID = gs.NextGameID
-
-			// set up timer
-			go func(g *Game) {
-				for i := 0; i < 10; i++ {
-
-					time.Sleep(time.Until(endtime))
-
-					g.endRound()
-				}
-			}(gs.Games[gs.NextGameID])
 		}
-	})
+	}
 }
 
-func handleMove() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		
-	})
+func (g *Game) endGame() {
+	p0Controlled := 0
+	p1Controlled := 0
+	for row := 0; row < GridHeight; row++ {
+		for col := 0; col < GridWidth; col++ {
+			points := g.Board[row][col].Points
+
+			if points[Player0] > points[Player1] {
+				p0Controlled++
+			} else if points[Player0] < points[Player1] {
+				p1Controlled++
+			} else {
+				continue
+			}
+		}
+	}
+
+	if p0Controlled > p1Controlled {
+		g.Players[Player0].Wins++
+		g.Players[Player1].Losses++
+	} else if p0Controlled < p1Controlled {
+		g.Players[Player0].Losses++
+		g.Players[Player1].Wins++
+	} else {
+		g.Players[Player0].Ties++
+		g.Players[Player1].Ties++
+	}
 }

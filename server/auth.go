@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -47,7 +48,7 @@ func handleRegister() http.Handler {
 			return
 		}
 
-		err = registerPlayer(req.Username, token)
+		err = gs.registerPlayer(req.Username, token)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -58,21 +59,21 @@ func handleRegister() http.Handler {
 	})
 }
 
-// validateToken checks the Authorization header and returns the username if valid.
+// validate checks the Authorization header for valid token before handling request
 func validate(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
 
-		gs.mu.RLock()
-		_, exists := gs.TokensToUsername[token]
-		gs.mu.RUnlock()
+		p, exists := gs.playerFromToken(token)
 
 		if exists == false {
 			http.Error(w, "token is invalid", http.StatusInternalServerError)
 			return
-		} 		
+		}
 
-		h.ServeHTTP(w, r)
+		ctx := context.WithValue(r.Context(), playerKey{}, p)
+
+		h.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
