@@ -1,7 +1,5 @@
 package main
 
-import "fmt"
-
 type CellData struct {
 	Points [2]int
 }
