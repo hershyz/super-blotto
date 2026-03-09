@@ -10,6 +10,8 @@ var (
 	ErrUsernameTaken = errors.New("username already taken")
 	ErrOutOfBounds = errors.New("index is out of bounds")
 	ErrGameInProgress = errors.New("game in progress, please wait until game has finished")
+	ErrNoParticipants = errors.New("no participants have joined yet")
+	ErrOddParticipants = errors.New("game can only start if an even number of participants join")
 	ErrNotInGame = errors.New("player is not in a game")
 	ErrInGame = errors.New("player is already in the game")
 	ErrRoundEnded = errors.New("round ended")

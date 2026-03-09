@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"math/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -24,7 +25,7 @@ type Player struct {
 	Losses        int
 	Ties        	int
 
-	InGame 				bool
+	InGame 				bool // True if player has joined the game or is currently playing in the game
 	GameID				int
 	Role					PlayerRole // Player 0 or 1 
 }
@@ -35,7 +36,7 @@ type GameState struct {
 	NextGameID	int
 	
 	Players     map[string]*Player // Token -> *Player
-	WaitingPlayers []*Player
+	WaitingPlayers map[*Player]struct{}
 	Games       map[int]*Game // GameID -> *Game
 	Leaderboard []*Player
 
@@ -49,11 +50,17 @@ type GameState struct {
 
 var gs = &GameState{
 	Players:   make(map[string]*Player),
+	WaitingPlayers: make(map[*Player]struct{}),
 	Games: make(map[int]*Game),
 
 	UsedUsernames: make(map[string]struct{}),
 }
 
+
+// Registers a player into the backend player store. The players username must 
+// be unique, and the game phase must be in Lobby. The players are not automatically 
+// added to the game, they must post a join request to be added to the 
+// gs.WaitingPlayers set
 func (gs *GameState) registerPlayer(username, token string) (error) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
@@ -135,8 +142,15 @@ func playerFromContext(ctx context.Context) (*Player, bool) {
 	return p, ok 
 }
 
+
+
+// --- Handlers ---
+
+
+
 // Lobby phase for people to join the game. I think it is nice to have a lobby
-// because people who are AFK won't be matched 
+// because people who are AFK won't be matched. Could also add a heartbeat system
+// and reuse the handleLeave function
 func (gs *GameState) handleLobby() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gs.mu.Lock()
@@ -162,8 +176,9 @@ func (gs *GameState) handleLobby() http.Handler {
 	})
 }
 
-// --- Handlers ---
-
+// Starts a game. The game phase must be in Lobby and must have and even number
+// of participants to start a game. This handler can only be called by an admin,
+// so it should be wrapped by an adminOnly() call.
 func (gs *GameState) handleStart() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		
@@ -175,16 +190,39 @@ func (gs *GameState) handleStart() http.Handler {
 			return
 		}
 
+		if len(gs.WaitingPlayers) == 0 {
+			http.Error(w, ErrNoParticipants.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if (len(gs.WaitingPlayers) % 2) != 0 { 
+			http.Error(w, ErrOddParticipants.Error(), http.StatusBadRequest)
+			return
+		}
+
 		if (gs.Round != 0) { panic(fmt.Sprint("Game round not initialized correctly")) }
 
 		gs.Phase = Playing
 
-		for len(gs.WaitingPlayers) >= 2 {
+		waitingPlayers := make([]*Player, 0, len(gs.WaitingPlayers))
+		
+		for p := range gs.WaitingPlayers {
+			waitingPlayers = append(waitingPlayers, p)
+		}
+
+		clear(gs.WaitingPlayers)
+	
+		// Shuffle waiting players
+		rand.Shuffle(len(waitingPlayers), func(i, j int) {
+			waitingPlayers[i], waitingPlayers[j] = waitingPlayers[j], waitingPlayers[i]
+		})
+
+		for len(waitingPlayers) >= 2 {
 			gs.NextGameID++
 
-			p0 := gs.WaitingPlayers[0]
-			p1 := gs.WaitingPlayers[1]
-			gs.WaitingPlayers = gs.WaitingPlayers[2:]
+			p0 := waitingPlayers[0]
+			p1 := waitingPlayers[1]
+			waitingPlayers = waitingPlayers[2:]
 			
 			gs.Games[gs.NextGameID] = &Game{
 				ID: gs.NextGameID,
@@ -215,6 +253,12 @@ func (gs *GameState) handleStart() http.Handler {
 	})
 }
 
+// Handles a move from a player. Player moves include the round (so movees from 
+// previous rounds don't affect the current round and are dropped), row, col, and 
+// CommandPoints. Moves can only be made by registered players that are in the game.
+// Thus, this handler should be wrapped with a validate() call. Validate will pass
+// the player pointer into the function through the http.Request context with key
+// playerKey{}.
 func (gs *GameState) handleMove() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -278,6 +322,11 @@ func (gs *GameState) handleMove() http.Handler {
 	})
 }
 
+// Handles a join from a player. Players that are registered are not automatically
+// added to the game. They need to send a post request to the /join path to be added.
+// Join requests can only be sent by players who have been registered. Thus, this 
+// handler should be wrapped with a validate() call. Validate will pass the player 
+// pointer into the function through the http.Request context with key playerKey{}.
 func (gs *GameState) handleJoin() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -302,10 +351,15 @@ func (gs *GameState) handleJoin() http.Handler {
 			return
 		}
 
-		gs.WaitingPlayers = append(gs.WaitingPlayers, p)
+		p.InGame = true
+		gs.WaitingPlayers[p] = struct{}{}
 	})
 }
 
+// Handles a leave request from a player. Removes the player from the gs.WaitingPlayers
+// set. Leave requests can only be sent by players who have been registered. Thus, 
+// this handler should be wrapped with a validate() call. Validate will pass the player 
+// pointer into the function through the http.Request context with key playerKey{}.
 func (gs *GameState) handleLeave() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -325,16 +379,17 @@ func (gs *GameState) handleLeave() http.Handler {
 			return
 		}
 
-		if p.InGame == true {
+		if p.InGame == false {
 			// Maybe should error here?
 			return
 		}
 
-		gs.WaitingPlayers = append(gs.WaitingPlayers, p)
+		p.InGame = false
+		delete(gs.WaitingPlayers, p)
 	})
 }
 
 // TODO: 
 // test :(
 // Set up reseponses from all handlers
-// 
+// check request types are correct for each request
