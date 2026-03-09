@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 type CellData struct {
 	Points [2]int
 }
@@ -25,21 +27,6 @@ func (g *Game) generatePoints(row, col int, role PlayerRole) {
 
 		g.CommandPoints[role] += 5
 	}
-}
-
-func (g *Game) move(row, col, reqCommandPoints int, role PlayerRole) (error) {
-		// This is a game state agnostic check, but I put it here because the code looks better. Can put it in the game state agnostic checks section
-		if reqCommandPoints < 0 {
-			return ErrNegativeCommandPoints
-		}
-
-		if g.CommandPoints[role] < reqCommandPoints {
-			return ErrInsufficientCommandPoints
-		}
-
-		g.CommandPoints[role] -= reqCommandPoints
-		g.Board[row][col].Points[role] += reqCommandPoints
-		return nil
 }
 
 func (g *Game) endRound() {
@@ -85,4 +72,13 @@ func (g *Game) endGame() {
 		g.Players[Player0].Ties++
 		g.Players[Player1].Ties++
 	}
+}
+
+// Row and Col must be validated before calling move
+func (g *Game) move(row, col, reqCommandPoints int, role PlayerRole) (error) {
+	if g.CommandPoints[role] < reqCommandPoints { return ErrInsufficientCommandPoints }
+
+	g.CommandPoints[role] -= reqCommandPoints
+	g.Board[row][col].Points[role] += reqCommandPoints
+	return nil
 }

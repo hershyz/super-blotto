@@ -8,14 +8,6 @@ import (
 	"net/http"
 )
 
-type registerRequest struct {
-	Username string `json:"username"`
-}
-
-type registerResponse struct {
-	Token string `json:"token"`
-}
-
 func generateToken() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
@@ -25,6 +17,15 @@ func generateToken() (string, error) {
 }
 
 func handleRegister() http.Handler {
+	type registerRequest struct {
+		Username string `json:"username"`
+	}
+
+	type registerResponse struct {
+		Token string `json:"token"`
+	}
+
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -67,7 +68,7 @@ func validate(h http.Handler) http.Handler {
 		p, exists := gs.playerFromToken(token)
 
 		if exists == false {
-			http.Error(w, "token is invalid", http.StatusInternalServerError)
+			http.Error(w, "token is invalid", http.StatusUnauthorized)
 			return
 		}
 
@@ -79,12 +80,15 @@ func validate(h http.Handler) http.Handler {
 
 func adminOnly(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// TODO: Admin auth logic
+		token := r.Header.Get("Authorization")
 
-		// If current user is not admin {
-		//		http.NotFound(w, r)
-		//		return
-		// }
+		p, exists := gs.playerFromToken(token)
+
+		if exists == false || p.IsAdmin == false {
+			http.NotFound(w, r)
+			return
+		}
+
 		h.ServeHTTP(w, r)
 	})
 }
