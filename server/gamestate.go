@@ -331,7 +331,7 @@ func (gs *GameState) handleMove() http.Handler {
 
 		if row < 0 || row >= GridWidth || 
 		col < 0 || col >= GridHeight {
-			http.Error(w, ErrOutOfBounds.Error(), http.StatusBadRequest)
+			encodeError(w, ErrOutOfBounds)
 			return
 		}
 

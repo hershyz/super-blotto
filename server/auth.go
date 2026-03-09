@@ -25,38 +25,30 @@ func handleRegister() http.Handler {
 		Token string `json:"token"`
 	}
 
-
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		var req registerRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "invalid request body", http.StatusBadRequest)
+		req, err := decode[registerRequest](r, http.MethodPost) 
+		if err != nil {
+			encodeError(w, err)
 			return
 		}
 
 		if req.Username == "" {
-			http.Error(w, "username is required", http.StatusBadRequest)
+			encodeError(w, ErrUsernameRequired)
 			return
 		}
 
 		token, err := generateToken()
 		if err != nil {
-			http.Error(w, "failed to generate token", http.StatusInternalServerError)
+			encodeError(w, ErrGeneratingToken)
 			return
 		}
 
-		err = gs.registerPlayer(req.Username, token)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if err = gs.registerPlayer(req.Username, token); err != nil {
+			encodeError(w, err)
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(registerResponse{Token: token})
+		encode(w, http.StatusOK, registerResponse{Token: token})
 	})
 }
 
@@ -68,7 +60,7 @@ func validate(h http.Handler) http.Handler {
 		p, exists := gs.playerFromToken(token)
 
 		if exists == false {
-			http.Error(w, "token is invalid", http.StatusUnauthorized)
+			encodeError(w, ErrInvalidToken)
 			return
 		}
 
