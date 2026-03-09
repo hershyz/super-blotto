@@ -61,14 +61,14 @@ func (g *Game) endGame() {
 	}
 
 	if p0Controlled > p1Controlled {
-		g.Players[Player0].Wins++
-		g.Players[Player1].Losses++
+		g.Players[Player0].Stats.Wins++
+		g.Players[Player1].Stats.Losses++
 	} else if p0Controlled < p1Controlled {
-		g.Players[Player0].Losses++
-		g.Players[Player1].Wins++
+		g.Players[Player0].Stats.Losses++
+		g.Players[Player1].Stats.Wins++
 	} else {
-		g.Players[Player0].Ties++
-		g.Players[Player1].Ties++
+		g.Players[Player0].Stats.Ties++
+		g.Players[Player1].Stats.Ties++
 	}
 }
 

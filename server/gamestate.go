@@ -9,14 +9,18 @@ import (
 	"time"
 )
 
-type Player struct {
-	IsAdmin   		bool	
-	Token 				string
-	Username 			string
-
+type PlayerStats struct {
 	Wins        	int
 	Losses        int
 	Ties        	int
+}
+
+type Player struct {
+	IsAdmin   		bool
+	Token 				string
+	Username 			string
+	
+	Stats 				PlayerStats
 
 	Participating bool // True if player has joined the game or is currently playing in the game
 	GameID				int
@@ -28,6 +32,7 @@ type GameState struct {
 	mu          sync.RWMutex
 	NextGameID	int
 	
+	Phase 				GamePhase
 	Players     map[string]*Player // Token -> *Player
 	WaitingPlayers map[*Player]struct{}
 	Games       map[int]*Game // GameID -> *Game TODO: Could make this a slice, since all games are happening at the same time so reusing gameIDs isn't really a problem
@@ -36,7 +41,6 @@ type GameState struct {
 	// Round metadata
 	Round 				int
 	RoundEndTime	time.Time
-	Phase 				GamePhase
 
 	UsedUsernames map[string]struct{}
 }
@@ -85,9 +89,9 @@ func (gs *GameState) startRound() (time.Time) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 	
+	gs.Phase = Playing
 	gs.Round++
 	gs.RoundEndTime = time.Now().Add(time.Second * TimePerRound)
-	gs.Phase = Playing
 	
 	return gs.RoundEndTime
 }
@@ -152,8 +156,8 @@ func playerFromContext(ctx context.Context) (*Player, bool) {
 // because people who are AFK won't be matched. Could also add a heartbeat system
 // and reuse the handleLeave function
 func (gs *GameState) handleLobby() http.Handler {
-	type lobbyRequest struct {}
-	type lobbyResponse struct {}
+	type LobbyRequest struct {}
+	type LobbyResponse struct {}
 
 	validateLobby := func() (error) {
 		// Can only go to lobby when the game is finished
@@ -164,7 +168,7 @@ func (gs *GameState) handleLobby() http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := decode[lobbyRequest](r, http.MethodPost); err != nil {
+		if _, err := decode[LobbyRequest](r, http.MethodPost); err != nil {
 			encodeError(w, err)
 			return
 		}
@@ -182,9 +186,9 @@ func (gs *GameState) handleLobby() http.Handler {
 			if len(gs.WaitingPlayers) != 0 	{ panic(fmt.Sprint("gs.WaitingPlayers should be empty in the finished state")) }
 			
 			// Reinitialize game state
+			gs.Phase = Lobby
 			clear(gs.Games)
 			gs.Round = 0
-			gs.Phase = Lobby
 			
 			// Reinitialize player state
 			for _, p := range gs.Players {
@@ -196,7 +200,7 @@ func (gs *GameState) handleLobby() http.Handler {
 			gs.mu.Unlock()
 		}
 
-		encode(w, http.StatusOK, lobbyResponse{})
+		encode(w, http.StatusOK, LobbyResponse{})
 	})
 }
 
@@ -204,8 +208,8 @@ func (gs *GameState) handleLobby() http.Handler {
 // of participants to start a game. This handler can only be called by an admin,
 // so it should be wrapped by an adminOnly() call.
 func (gs *GameState) handleStart() http.Handler {
-	type startRequest struct {}
-	type startResponse struct {}
+	type StartRequest struct {}
+	type StartResponse struct {}
 
 	validateStart := func() error {
 			if gs.Phase != Lobby { return ErrGameInProgress }
@@ -215,7 +219,7 @@ func (gs *GameState) handleStart() http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := decode[startRequest](r, http.MethodPost); err != nil {
+		if _, err := decode[StartRequest](r, http.MethodPost); err != nil {
 			encodeError(w, err)
 			return
 		}
@@ -286,7 +290,7 @@ func (gs *GameState) handleStart() http.Handler {
 			}
 		}(gs)
 
-		encode(w, http.StatusAccepted, startResponse{})
+		encode(w, http.StatusAccepted, StartResponse{})
 	})
 }
 
@@ -297,15 +301,15 @@ func (gs *GameState) handleStart() http.Handler {
 // the player pointer into the function through the http.Request context with key
 // playerKey{}.
 func (gs *GameState) handleMove() http.Handler {
-	type moveRequest struct {
+	type MoveRequest struct {
 		Round int `json:"round"`
 		Row	int `json:"row"`
 		Col int `json:"col"`
 		CommandPoints int `json:"commandPoints"`
 	}
-	type moveResponse struct {}
+	type MoveResponse struct {}
 
-	validateMove := func(req moveRequest, p *Player) (error) {
+	validateMove := func(req MoveRequest, p *Player) (error) {
 		if (p.Participating == false && p.GameID != NullGameID) { panic(fmt.Sprintf("GameID is not NullGameID when player is not in game")) }
 		if (p.GameID == NullGameID) 														{ panic(fmt.Sprintf("GameID is NullGameID when player is in game")) }
 
@@ -317,7 +321,7 @@ func (gs *GameState) handleMove() http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		req, err := decode[moveRequest](r, http.MethodPost)
+		req, err := decode[MoveRequest](r, http.MethodPost)
 
 		if err != nil {
 			encodeError(w, err)
@@ -361,7 +365,7 @@ func (gs *GameState) handleMove() http.Handler {
 			gs.mu.Unlock()
 		}
 
-		encode(w, http.StatusOK, moveResponse{})
+		encode(w, http.StatusOK, MoveResponse{})
 	})
 }
 
@@ -371,8 +375,8 @@ func (gs *GameState) handleMove() http.Handler {
 // handler should be wrapped with a validate() call. Validate will pass the player 
 // pointer into the function through the http.Request context with key playerKey{}.
 func (gs *GameState) handleJoin() http.Handler {
-	type joinRequest struct {}
-	type joinResponse struct {}
+	type JoinRequest struct {}
+	type JoinResponse struct {}
 
 	validateLobby := func() (error) {
 		if gs.Phase != Lobby { return ErrGameInProgress }
@@ -382,7 +386,7 @@ func (gs *GameState) handleJoin() http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := decode[joinRequest](r, http.MethodPost); err != nil {
+		if _, err := decode[JoinRequest](r, http.MethodPost); err != nil {
 			encodeError(w, err)
 			return
 		}
@@ -405,7 +409,7 @@ func (gs *GameState) handleJoin() http.Handler {
 			gs.mu.Unlock()
 		}
 
-		encode(w, http.StatusOK, joinResponse{})
+		encode(w, http.StatusOK, JoinResponse{})
 	})
 }
 
@@ -414,8 +418,8 @@ func (gs *GameState) handleJoin() http.Handler {
 // this handler should be wrapped with a validate() call. Validate will pass the player 
 // pointer into the function through the http.Request context with key playerKey{}.
 func (gs *GameState) handleLeave() http.Handler {
-	type leaveRequest struct {}
-	type leaveResponse struct {}
+	type LeaveRequest struct {}
+	type LeaveResponse struct {}
 
 	validateLeave := func() (error) {
 		if gs.Phase != Lobby { return ErrGameInProgress }
@@ -425,7 +429,7 @@ func (gs *GameState) handleLeave() http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := decode[leaveRequest](r, http.MethodPost); err != nil {
+		if _, err := decode[LeaveRequest](r, http.MethodPost); err != nil {
 			encodeError(w, err)
 			return
 		}
@@ -448,7 +452,74 @@ func (gs *GameState) handleLeave() http.Handler {
 			gs.mu.Unlock()
 		}
 		
-		encode(w, http.StatusOK, leaveResponse{})
+		encode(w, http.StatusOK, LeaveResponse{})
+	})
+}
+
+func (gs *GameState) handleGetState() http.Handler {
+	type PlayerInfo struct {
+		Username string `json:"username"`
+		Stats PlayerStats `json:"stats"`
+		CommandPoints int `json:"CommandPoints"`
+
+	}
+
+	type LobbyData struct {
+		WaitingPlayers string `json:"waitingPlayers"`
+		Leaderboard	[]PlayerLeaderboardInfo `json:"leaderboard"`
+		Me PlayerInfo `json:"me"`
+	}
+
+	type GameData struct {
+		Round int `json:"round"`
+		RoundEndTime time.Time `json:"roundEndTime"`
+		Opponent PlayerInfo `json:"opponent"`
+		Me PlayerInfo `json:"me"`
+
+	}
+
+	type GetStateRequest struct {}
+	type GetStateResponse struct {
+		Phase GamePhase `json:"phase"`
+	
+		// Lobby data
+		LobbyData LobbyData `json:"lobbyData"`
+
+		// In game data
+		GameData GameData `json:"gameData"`
+	}
+
+	validateGetState := func() (error) {
+		return nil
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := decode[getStateRequest](r, http.MethodGet); err != nil {
+			encodeError(w, err)
+			return
+		}
+
+		var response getStateResponse
+		p, ok := playerFromContext(r.Context())
+		if !ok { panic(fmt.Sprintf("gs.playerFromContext failed")) }
+	
+		{
+			gs.mu.Lock()
+
+			if err := validateGetState(); err != nil {
+				gs.mu.Unlock()
+				encodeError(w, err)
+				return
+			}
+
+			response = getStateResponse{
+
+			}
+
+			gs.mu.Unlock()
+		}
+		
+		encode(w, http.StatusOK, response)
 	})
 }
 
