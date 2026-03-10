@@ -25,8 +25,9 @@ var (
 	ErrInvalidToken = errors.New("token is invalid")
 
 	// 403 Forbidden (Authenticated, but not allowed to do this now)
-	ErrNotInGame = errors.New("player is not in a game")
-	ErrInGame = errors.New("player is already in the game")
+	ErrNotInGame = errors.New("player is not in the game")
+	ErrNotJoined = errors.New("player is not currently joined")
+	ErrAlreadyJoined = errors.New("player has already joined the game")
 
 	// 405 Method Not Allowed
 	ErrMethodNotAllowed = errors.New("method not allowed")
@@ -56,8 +57,9 @@ var ErrorToStatus = map[error]int{
 	ErrInvalidToken: http.StatusUnauthorized,
 
 	// 403 Forbidden (Authenticated, but not allowed to do this now)
-	ErrNotInGame: http.StatusForbidden,
-	ErrInGame:    http.StatusForbidden,
+	ErrNotInGame: 		http.StatusForbidden,
+	ErrNotJoined: 		http.StatusForbidden,
+	ErrAlreadyJoined: http.StatusForbidden,
 
 	// 405 Method Not Allowed
 	ErrMethodNotAllowed: http.StatusMethodNotAllowed,
@@ -91,6 +93,7 @@ const (
 	TotalRounds = 10
 	TimePerRound = 30
 	AdminToken = "AdminToken"
+	AdminUsername = "admin"
 )
 
 type GamePhase int
@@ -100,14 +103,6 @@ const (
 	Playing
 	Resolving
 	Finished
-)
-
-type PlayerRole int
-
-const (
-	None PlayerRole = iota-1
-	Player0
-	Player1
 )
 
 type playerKey struct{} // Key to get player pointer inside http request

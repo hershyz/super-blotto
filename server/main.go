@@ -9,6 +9,7 @@ import (
 func main() {
 	http.Handle("/register", handleRegister())
 
+	http.Handle("/state", validate(gs.handleGetState()))
 	http.Handle("/move", validate(gs.handleMove()))
 	http.Handle("/join", validate(gs.handleJoin()))
 	http.Handle("/leave", validate(gs.handleLeave()))
