@@ -45,6 +45,13 @@ func (p *Player) getUsername() string {
 	return p.Username
 }
 
+func (p *Player) getOpponent() *Player {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	
+	return p.Opponent
+}
+
 func (p *Player) getLeaderboardData() PlayerData {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -79,18 +86,8 @@ func (p *Player) getGameData(op bool) PlayerData {
 	return data
 }
 
-func (p *Player) getOpponent() *Player {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	
-	return p.Opponent
-}
-
 // All functions are called assuming the caller holds the gs.mu lock
-func (p *Player) generatePoints(row, col int) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
+func generatePoints(row, col int, board *[GridHeight][GridWidth]int) {
 	for _, d := range dirs {
 		nr := row + d[0]
 		nc := col + d[1]
@@ -99,10 +96,12 @@ func (p *Player) generatePoints(row, col int) {
 		nc < 0 || nc >= GridWidth {
 			continue
 		}
-		p.CommandPoints += 5
+
+		board[nr][nc] += 5
 	}
 }
 
+// Only ever called on p0
 func (me *Player) endRound() {
 	me.mu.Lock()
 	defer me.mu.Unlock()
@@ -114,25 +113,29 @@ func (me *Player) endRound() {
 	myBoard := me.Board
 	opBoard := op.Board
 
-	me.VisibleBoard = myBoard
-	op.VisibleBoard = opBoard
-
 	for row := 0; row < GridHeight; row++ {
 		for col := 0; col < GridWidth; col++ {
 			myPoints := myBoard[row][col]
 			opPoints := opBoard[row][col]
 
 			if myPoints > opPoints {
-				me.generatePoints(row, col)
+				generatePoints(row, col, &myBoard)
 			} else if myPoints < opPoints {
-				op.generatePoints(row, col)
+				generatePoints(row, col, &opBoard)
 			} else {
 				continue
 			}
 		}
 	}
+
+	me.Board = myBoard
+	op.Board = opBoard
+
+	me.VisibleBoard = myBoard
+	op.VisibleBoard = opBoard
 }
 
+// Only ever called on p0
 func (me *Player) endGame() {
 	me.mu.Lock()
 	defer me.mu.Unlock()
@@ -143,9 +146,6 @@ func (me *Player) endGame() {
 
 	myBoard := me.Board
 	opBoard := op.Board
-
-	me.VisibleBoard = myBoard
-	op.VisibleBoard = opBoard
 
 	myCount := 0
 	opCount := 0

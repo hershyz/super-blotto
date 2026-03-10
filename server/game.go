@@ -17,7 +17,7 @@ type GameState struct {
 	
 	Phase 				GamePhase
 	WaitingPlayers []*Player
-	PlayerZeros		[]*Player // All player 0s. These players will be used as indentifiers for games and are always chosen by lower player username. Locking when reading data across players happens 0 -> 1, i.e. you lock player 0 before locking player 1
+	PlayerZeros		[]*Player // All player 0s. These players will be used as identifiers for games and are always chosen by player with the lexicographically smaller username. Locking when reading data across players happens 0 -> 1, i.e. you lock player 0 before locking player 1
 	Leaderboard []*Player
 
 	// Round metadata
@@ -235,10 +235,13 @@ func (gs *GameState) handleStart() http.Handler {
 				p1 := gs.WaitingPlayers[1]
 				gs.WaitingPlayers = gs.WaitingPlayers[2:]
 
-				// Assign p0 to the player with the lower username
+				// Assign p0 to the player with the lexicographically smaller username
 				if p0.getUsername() > p1.getUsername() {
 					p0, p1 = p1, p0
 				}
+				
+				// Use p0 as the identifiers for games
+				gs.PlayerZeros = append(gs.PlayerZeros, p0)
 
 				p0.start(p1)
 				p1.start(p0)
@@ -254,14 +257,10 @@ func (gs *GameState) handleStart() http.Handler {
 			for i := 1; i <= TotalRounds; i++ {
 				endtime := gs.startRound()
 				time.Sleep(time.Until(endtime))
-
-				if i == TotalRounds {
-					gs.endGame()
-				} else {
-					gs.endRound()
-				}
+				gs.endRound()
 				// TODO: Maybe wait for 5 seconds before starting a new round?
 			}
+			gs.endGame()
 		}(gs)
 
 		encode(w, http.StatusAccepted, StartResponse{})
