@@ -17,7 +17,7 @@ type GameState struct {
 	
 	Phase 				GamePhase
 	WaitingPlayers []*Player
-	PlayerZeros		[]*Player // All player 0s. These players will be used as indentifiers for games. Locking when reading data across players happens 0 -> 1, i.e. you lock player 0 before locking player 1
+	PlayerZeros		[]*Player // All player 0s. These players will be used as indentifiers for games and are always chosen by lower player username. Locking when reading data across players happens 0 -> 1, i.e. you lock player 0 before locking player 1
 	Leaderboard []*Player
 
 	// Round metadata
@@ -235,6 +235,11 @@ func (gs *GameState) handleStart() http.Handler {
 				p1 := gs.WaitingPlayers[1]
 				gs.WaitingPlayers = gs.WaitingPlayers[2:]
 
+				// Assign p0 to the player with the lower username
+				if p0.getUsername() > p1.getUsername() {
+					p0, p1 = p1, p0
+				}
+
 				p0.start(p1)
 				p1.start(p0)
 			}
@@ -310,7 +315,7 @@ func (gs *GameState) handleMove() http.Handler {
 		if !ok { panic(fmt.Sprintf("gs.playerFromContext failed in move request")) }
 
 		{
-			gs.mu.RLock() // To make moves more concurrent, only get the gs reader lock. Not changing any gs specific variables. 
+			gs.mu.RLock() // To make moves more concurrent, only get the gs reader lock. This is fine becuase we are not changing any gs specific variables. 
 			
 			if err := validateMove(req, p); err != nil {
 				gs.mu.RUnlock()
@@ -476,7 +481,7 @@ func (gs *GameState) handleGetState() http.Handler {
 			}
 
 			response.Phase = gs.Phase
-
+			
 			if gs.Phase == Lobby {
 				waitingUsernames := make([]string, 0, len(gs.WaitingPlayers))
 				for _, wp := range gs.WaitingPlayers {
@@ -494,6 +499,10 @@ func (gs *GameState) handleGetState() http.Handler {
 					Me: p.getLeaderboardData(),
 				}
 			} else {
+				// I think there are some concurrency issues with this. Since we only have a reader lock on gs,
+				// and we don't hold both me and op mutex at the same time, a move from either me or op could
+				// come in between our .getGameData requests. I don't think this is an issue because we don't
+				// see opponent moves until after the round ends anyways.
 				response.GameData = GameData{
 					Round: gs.Round,
 					RoundEndTime: gs.RoundEndTime,
@@ -515,4 +524,5 @@ func (gs *GameState) handleGetState() http.Handler {
 // other handlers needed: 
 //		GET /leaderboard 
 // 		POST /reset (maybe)
+// the getState handler might be too inefficient with all the locking. Might have to think of a different way to get the state of the game, or use caching/versioning to reduce the computation.
 
