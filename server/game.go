@@ -12,19 +12,22 @@ import (
 
 // All in-memory game state. mu is used to protect accesses to everything
 type GameState struct {
-	mu          sync.RWMutex
-	NextGameID	int
-	
-	Phase 				GamePhase
+	mu         sync.RWMutex
+	NextGameID int
+
+
+	Phase          GamePhase
 	WaitingPlayers []*Player
-	PlayerZeros		[]*Player // All player 0s. These players will be used as identifiers for games and are always chosen by player with the lexicographically smaller username. Locking when reading data across players happens 0 -> 1, i.e. you lock player 0 before locking player 1
-	Leaderboard []*Player
+	// PlayerZeros are used as identifiers for games; 
+	// chosen lexicographically to ensure 0 -> 1 locking order.
+	PlayerZeros    []*Player
+	Leaderboard    []*Player
 
 	// Round metadata
-	Round 				int
-	RoundEndTime	time.Time
+	Round        int
+	RoundEndTime time.Time
 
-	Players    		map[string]*Player // Token -> *Player
+	Players       map[string]*Player // Token -> *Player
 	UsedUsernames map[string]struct{}
 }
 
@@ -38,17 +41,17 @@ func NewGameState() *GameState {
 			},
 		},
 		WaitingPlayers: make([]*Player, 0),
-		PlayerZeros: make([]*Player, 0),
-		Leaderboard: make([]*Player, 0),
+		PlayerZeros:    make([]*Player, 0),
+		Leaderboard:    make([]*Player, 0),
 
 		UsedUsernames: map[string]struct{}{AdminUsername: {}},
 	}
 }
 
-var gs *GameState = NewGameState()
+var gs = NewGameState()
 
-// Registers a player into the backend player store. The players username must 
-// be unique. The players are not automatically added to the game, they must 
+// Registers a player into the backend player store. The players username must
+// be unique. The players are not automatically added to the game, they must
 // post a join request to be added to the gs.WaitingPlayers set
 func (gs *GameState) registerPlayer(username, token string) error {
 	gs.mu.Lock()
@@ -59,8 +62,8 @@ func (gs *GameState) registerPlayer(username, token string) error {
 	}
 
 	p := &Player{
-		Token: 					token,
-		Username:      	username,
+		Token:    token,
+		Username: username,
 
 		CommandPoints: InitialCommandPoints,
 	}
@@ -76,11 +79,11 @@ func (gs *GameState) registerPlayer(username, token string) error {
 func (gs *GameState) startRound() time.Time {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
-	
+
 	gs.Phase = Playing
 	gs.Round++
 	gs.RoundEndTime = time.Now().Add(time.Second * TimePerRound)
-	
+
 	return gs.RoundEndTime
 }
 
@@ -90,12 +93,12 @@ func (gs *GameState) endRound() {
 
 	gs.Phase = Resolving
 	var wg sync.WaitGroup
-	
+
 	for _, p := range gs.PlayerZeros {
 		wg.Add(1)
-		go func(p *Player) { 
-			defer wg.Done() 
-			p.endRound() 
+		go func(p *Player) {
+			defer wg.Done()
+			p.endRound()
 		}(p)
 	}
 
@@ -111,9 +114,9 @@ func (gs *GameState) endGame() {
 
 	for _, p := range gs.PlayerZeros {
 		wg.Add(1)
-		go func(p *Player) { 
-			defer wg.Done() 
-			p.endGame() 
+		go func(p *Player) {
+			defer wg.Done()
+			p.endGame()
 		}(p)
 	}
 
@@ -126,29 +129,31 @@ func (gs *GameState) playerFromToken(token string) (*Player, bool) {
 
 	p, exists := gs.Players[token]
 
-	return p, exists 
+	return p, exists
 }
 
 func playerFromContext(ctx context.Context) (*Player, bool) {
 	p, ok := ctx.Value(playerKey{}).(*Player)
-	return p, ok 
+	return p, ok
 }
 
 // --- Handlers ---
-
-
 
 // Lobby phase for people to join the game. I think it is nice to have a lobby
 // because people who are AFK won't be matched. Could also add a heartbeat system
 // and reuse the handleLeave function
 func (gs *GameState) handleLobby() http.Handler {
-	type LobbyRequest struct {}
-	type LobbyResponse struct {}
+	type LobbyRequest struct{}
+	type LobbyResponse struct{}
 
-	validateLobby := func() (error) {
+	validateLobby := func() error {
 		// Can only go to lobby when the game is finished
-		if (gs.Phase == Lobby)												 		{ return ErrInLobby }
-		if (gs.Phase == Playing || gs.Phase == Resolving) { return ErrGameInProgress }
+		if gs.Phase == Lobby {
+			return ErrInLobby
+		}
+		if gs.Phase == Playing || gs.Phase == Resolving {
+			return ErrGameInProgress
+		}
 
 		return nil
 	}
@@ -158,7 +163,7 @@ func (gs *GameState) handleLobby() http.Handler {
 			encodeError(w, err)
 			return
 		}
-		
+
 		{
 			gs.mu.Lock()
 
@@ -168,14 +173,18 @@ func (gs *GameState) handleLobby() http.Handler {
 				return
 			}
 
-			if gs.Phase != Finished 				{ panic(fmt.Sprint("impossible")) } // for local reasoning purposes only since validateLobby checks this is true
-			if len(gs.WaitingPlayers) != 0 	{ panic(fmt.Sprint("gs.WaitingPlayers should be empty in the finished state")) }
-			
+			if gs.Phase != Finished {
+				panic(fmt.Sprint("impossible"))
+			} // for local reasoning purposes only since validateLobby checks this is true
+			if len(gs.WaitingPlayers) != 0 {
+				panic(fmt.Sprint("gs.WaitingPlayers should be empty in the finished state"))
+			}
+
 			// Reinitialize game state
 			gs.Phase = Lobby
 			clear(gs.PlayerZeros)
 			gs.Round = 0
-			
+
 			// Reinitialize player state
 			for _, p := range gs.Players {
 				p.gotoLobby()
@@ -192,14 +201,20 @@ func (gs *GameState) handleLobby() http.Handler {
 // of participants to start a game. This handler can only be called by an admin,
 // so it should be wrapped by an adminOnly() call.
 func (gs *GameState) handleStart() http.Handler {
-	type StartRequest struct {}
-	type StartResponse struct {}
+	type StartRequest struct{}
+	type StartResponse struct{}
 
 	validateStart := func() error {
-			if gs.Phase != Lobby { return ErrGameInProgress }
-			if len(gs.WaitingPlayers) == 0 { return ErrNoParticipants }
-			if len(gs.WaitingPlayers)%2 != 0 { return ErrOddParticipants }
-			return nil
+		if gs.Phase != Lobby {
+			return ErrGameInProgress
+		}
+		if len(gs.WaitingPlayers) == 0 {
+			return ErrNoParticipants
+		}
+		if len(gs.WaitingPlayers)%2 != 0 {
+			return ErrOddParticipants
+		}
+		return nil
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -207,21 +222,25 @@ func (gs *GameState) handleStart() http.Handler {
 			encodeError(w, err)
 			return
 		}
-		
+
 		// Setup work for games to start. Games don't really start until the timer starts in gs.startRound.
-		// It is important that gs.Phase is not changes to Playing in this block so that move requests recieved 
+		// It is important that gs.Phase is not changes to Playing in this block so that move requests recieved
 		// between the end of this block and the gs.startRound call are rejected.
 		{
 			gs.mu.Lock()
 
 			if err := validateStart(); err != nil {
 				gs.mu.Unlock()
-				encodeError(w, err) // unlock before calling encode error so that sending messages and logging doesn't happen while holding a lock
+				encodeError(w, err)
 				return
 			}
 
-			if (gs.Round != 0) 					{ panic(fmt.Sprint("Game round not initialized correctly")) }
-			if len(gs.PlayerZeros) != 0 { panic(fmt.Sprint("gs.PlayerZeros not initialized correctly in the lobby phase")) }
+			if gs.Round != 0 {
+				panic(fmt.Sprint("Game round not initialized correctly"))
+			}
+			if len(gs.PlayerZeros) != 0 {
+				panic(fmt.Sprint("gs.PlayerZeros not initialized correctly in the lobby phase"))
+			}
 
 			// Shuffle waiting players
 			rand.Shuffle(len(gs.WaitingPlayers), func(i, j int) {
@@ -239,7 +258,7 @@ func (gs *GameState) handleStart() http.Handler {
 				if p0.getUsername() > p1.getUsername() {
 					p0, p1 = p1, p0
 				}
-				
+
 				// Use p0 as the identifiers for games
 				gs.PlayerZeros = append(gs.PlayerZeros, p0)
 
@@ -247,11 +266,13 @@ func (gs *GameState) handleStart() http.Handler {
 				p1.start(p0)
 			}
 
-			if len(gs.WaitingPlayers) != 0 { panic(fmt.Sprint("gs.WaitingPlayers is somehow not empty after pairing up players")) }
+			if len(gs.WaitingPlayers) != 0 {
+				panic(fmt.Sprint("gs.WaitingPlayers is somehow not empty after pairing up players"))
+			}
 
 			gs.mu.Unlock()
 		} // unlock gs.mu so setting up timers doesn't hold the lock
-		
+
 		// set up timer
 		go func(gs *GameState) {
 			for i := 1; i <= TotalRounds; i++ {
@@ -267,25 +288,31 @@ func (gs *GameState) handleStart() http.Handler {
 	})
 }
 
-// Handles a move from a player. Player moves include the round (so movees from 
-// previous rounds don't affect the current round and are dropped), row, col, and 
+// Handles a move from a player. Player moves include the round (so movees from
+// previous rounds don't affect the current round and are dropped), row, col, and
 // CommandPoints. Moves can only be made by registered players that are in the game.
 // Thus, this handler should be wrapped with a validate() call. Validate will pass
 // the player pointer into the function through the http.Request context with key
 // playerKey{}.
 func (gs *GameState) handleMove() http.Handler {
 	type MoveRequest struct {
-		Round int `json:"round"`
-		Row	int `json:"row"`
-		Col int `json:"col"`
+		Round         int `json:"round"`
+		Row           int `json:"row"`
+		Col           int `json:"col"`
 		CommandPoints int `json:"commandPoints"`
 	}
-	type MoveResponse struct {}
+	type MoveResponse struct{}
 
-	validateMove := func(req MoveRequest, p *Player) (error) {
-		if gs.Phase != Playing 			{ return ErrRoundEnded }
-		if gs.Round != req.Round 		{ return ErrIncorrectRound }
-		if req.CommandPoints < 0 		{ return ErrNegativeCommandPoints }
+	validateMove := func(req MoveRequest, p *Player) error {
+		if gs.Phase != Playing {
+			return ErrRoundEnded
+		}
+		if gs.Round != req.Round {
+			return ErrIncorrectRound
+		}
+		if req.CommandPoints < 0 {
+			return ErrNegativeCommandPoints
+		}
 		return nil
 	}
 
@@ -295,15 +322,15 @@ func (gs *GameState) handleMove() http.Handler {
 		if err != nil {
 			encodeError(w, err)
 			return
-		} 
-		
+		}
+
 		row := req.Row
 		col := req.Col
 
 		// --- game state agnostic checks ---
 
-		if row < 0 || row >= GridWidth || 
-		col < 0 || col >= GridHeight {
+		if row < 0 || row >= GridWidth ||
+			col < 0 || col >= GridHeight {
 			encodeError(w, ErrOutOfBounds)
 			return
 		}
@@ -311,11 +338,15 @@ func (gs *GameState) handleMove() http.Handler {
 		// --- game state specific checks ---
 
 		p, ok := playerFromContext(r.Context())
-		if !ok { panic(fmt.Sprintf("gs.playerFromContext failed in move request")) }
+		if !ok {
+			panic(fmt.Sprintf("gs.playerFromContext failed in move request"))
+		}
 
 		{
-			gs.mu.RLock() // To make moves more concurrent, only get the gs reader lock. This is fine becuase we are not changing any gs specific variables. 
-			
+			// To make moves more concurrent, only get the gs reader lock. 
+			// This is fine becuase we are not changing any gs specific variables.
+			gs.mu.RLock() 
+
 			if err := validateMove(req, p); err != nil {
 				gs.mu.RUnlock()
 				encodeError(w, err)
@@ -337,15 +368,17 @@ func (gs *GameState) handleMove() http.Handler {
 
 // Handles a join from a player. Players that are registered are not automatically
 // added to the game. They need to send a post request to the /join path to be added.
-// Join requests can only be sent by players who have been registered. Thus, this 
-// handler should be wrapped with a validate() call. Validate will pass the player 
+// Join requests can only be sent by players who have been registered. Thus, this
+// handler should be wrapped with a validate() call. Validate will pass the player
 // pointer into the function through the http.Request context with key playerKey{}.
 func (gs *GameState) handleJoin() http.Handler {
-	type JoinRequest struct {}
-	type JoinResponse struct {}
+	type JoinRequest struct{}
+	type JoinResponse struct{}
 
-	validateLobby := func() (error) {
-		if gs.Phase != Lobby { return ErrGameInProgress }
+	validateLobby := func() error {
+		if gs.Phase != Lobby {
+			return ErrGameInProgress
+		}
 
 		return nil
 	}
@@ -355,9 +388,11 @@ func (gs *GameState) handleJoin() http.Handler {
 			encodeError(w, err)
 			return
 		}
-		
+
 		p, ok := playerFromContext(r.Context())
-		if !ok { panic(fmt.Sprintf("gs.playerFromContext failed")) }
+		if !ok {
+			panic(fmt.Sprintf("gs.playerFromContext failed"))
+		}
 
 		{
 			gs.mu.Lock()
@@ -382,15 +417,17 @@ func (gs *GameState) handleJoin() http.Handler {
 }
 
 // Handles a leave request from a player. Removes the player from the gs.WaitingPlayers
-// set. Leave requests can only be sent by players who have been registered. Thus, 
-// this handler should be wrapped with a validate() call. Validate will pass the player 
+// set. Leave requests can only be sent by players who have been registered. Thus,
+// this handler should be wrapped with a validate() call. Validate will pass the player
 // pointer into the function through the http.Request context with key playerKey{}.
 func (gs *GameState) handleLeave() http.Handler {
-	type LeaveRequest struct {}
-	type LeaveResponse struct {}
+	type LeaveRequest struct{}
+	type LeaveResponse struct{}
 
-	validateLeave := func() (error) {
-		if gs.Phase != Lobby { return ErrGameInProgress }
+	validateLeave := func() error {
+		if gs.Phase != Lobby {
+			return ErrGameInProgress
+		}
 		// TODO: maybe error if p.Participating == false
 
 		return nil
@@ -401,10 +438,12 @@ func (gs *GameState) handleLeave() http.Handler {
 			encodeError(w, err)
 			return
 		}
-		
+
 		p, ok := playerFromContext(r.Context())
-		if !ok { panic(fmt.Sprintf("gs.playerFromContext failed")) }
-	
+		if !ok {
+			panic(fmt.Sprintf("gs.playerFromContext failed"))
+		}
+
 		{
 			gs.mu.Lock()
 
@@ -420,43 +459,40 @@ func (gs *GameState) handleLeave() http.Handler {
 				return
 			}
 
-			// O(n) deletion. I wanted to use a slice for waiting players so that if we display the waiting players on the client side, the order will be consistent
+			// O(n) deletion. I wanted to use a slice for waiting players so that if we 
+			// display the waiting players on the client side, the order will be consistent
 			gs.WaitingPlayers = slices.DeleteFunc(gs.WaitingPlayers, func(wp *Player) bool {
 				return wp == p
 			})
 			gs.mu.Unlock()
 		}
-		
+
 		encode(w, http.StatusOK, LeaveResponse{})
 	})
 }
 
 func (gs *GameState) handleGetState() http.Handler {
 	type LobbyData struct {
-		WaitingPlayers []string `json:"waitingPlayers"`
-		Leaderboard	[]PlayerData `json:"leaderboard"`
-		Me PlayerData `json:"me"`
+		WaitingPlayers []string     `json:"waitingPlayers"`
+		Leaderboard    []PlayerData `json:"leaderboard"`
+		Me             PlayerData   `json:"me"`
 	}
 
 	type GameData struct {
-		Round int `json:"round"`
-		RoundEndTime time.Time `json:"roundEndTime"`
-		Opponent PlayerData `json:"opponent"`
-		Me PlayerData `json:"me"`
+		Round        int        `json:"round"`
+		RoundEndTime time.Time  `json:"roundEndTime"`
+		Opponent     PlayerData `json:"opponent"`
+		Me           PlayerData `json:"me"`
 	}
 
-	type GetStateRequest struct {}
+	type GetStateRequest struct{}
 	type GetStateResponse struct {
 		Phase GamePhase `json:"phase"`
-	
-		// Lobby data
-		LobbyData LobbyData `json:"lobbyData,omitempty"`
-
-		// In game data
-		GameData GameData `json:"gameData,omitempty"`
+		LobbyData LobbyData `json:"lobbyData,omitempty"` // Only send if Phase == Lobby
+		GameData GameData `json:"gameData,omitempty"` // Only send if Phase != Lobby
 	}
 
-	validateGetState := func() (error) {
+	validateGetState := func() error {
 		return nil
 	}
 
@@ -468,8 +504,10 @@ func (gs *GameState) handleGetState() http.Handler {
 
 		var response GetStateResponse
 		p, ok := playerFromContext(r.Context())
-		if !ok { panic(fmt.Sprintf("gs.playerFromContext failed")) }
-	
+		if !ok {
+			panic(fmt.Sprintf("gs.playerFromContext failed"))
+		}
+
 		{
 			gs.mu.RLock()
 
@@ -480,7 +518,7 @@ func (gs *GameState) handleGetState() http.Handler {
 			}
 
 			response.Phase = gs.Phase
-			
+
 			if gs.Phase == Lobby {
 				waitingUsernames := make([]string, 0, len(gs.WaitingPlayers))
 				for _, wp := range gs.WaitingPlayers {
@@ -494,8 +532,8 @@ func (gs *GameState) handleGetState() http.Handler {
 
 				response.LobbyData = LobbyData{
 					WaitingPlayers: waitingUsernames,
-					Leaderboard: leaderboardData,
-					Me: p.getLeaderboardData(),
+					Leaderboard:    leaderboardData,
+					Me:             p.getLeaderboardData(),
 				}
 			} else {
 				// I think there are some concurrency issues with this. Since we only have a reader lock on gs,
@@ -503,25 +541,24 @@ func (gs *GameState) handleGetState() http.Handler {
 				// come in between our .getGameData requests. I don't think this is an issue because we don't
 				// see opponent moves until after the round ends anyways.
 				response.GameData = GameData{
-					Round: gs.Round,
+					Round:        gs.Round,
 					RoundEndTime: gs.RoundEndTime,
-					Opponent: p.getOpponent().getGameData(true),
-					Me: p.getGameData(false),
+					Opponent:     p.getOpponent().getGameData(true),
+					Me:           p.getGameData(false),
 				}
 			}
 
 			gs.mu.RUnlock()
 		}
-		
+
 		encode(w, http.StatusOK, response)
 	})
 }
 
-// TODO: 
+// TODO:
 // test :(
 // update leaderboard.
-// other handlers needed: 
-//		GET /leaderboard 
+// other handlers needed:
+//		GET /leaderboard
 // 		POST /reset (maybe)
 // the getState handler might be too inefficient with all the locking. Might have to think of a different way to get the state of the game, or use caching/versioning to reduce the computation.
-

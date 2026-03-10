@@ -6,36 +6,36 @@ import (
 )
 
 type PlayerData struct {
-	Username string `json:"username"`
-	Stats PlayerStats `json:"stats"`
-	Playing bool 			`json:"playing"`
-	CommandPoints int `json:"CommandPoints,omitempty"` // Empty if gamephase is Lobby
-	Board [GridHeight][GridWidth]int `json:"board,omitempty"` // Empty if gamephase is Lobby
+	Username      string                     `json:"username"`
+	Stats         PlayerStats                `json:"stats"`
+	Playing       bool                       `json:"playing"`
+	CommandPoints int                        `json:"CommandPoints,omitempty"` // Empty if gamephase is Lobby
+	Board         [GridHeight][GridWidth]int `json:"board,omitempty"`         // Empty if gamephase is Lobby
 }
 
 type PlayerStats struct {
-	Wins        	int
-	Losses        int
-	Ties        	int
+	Wins   int
+	Losses int
+	Ties   int
 }
 
 type Player struct {
-	mu 						sync.RWMutex
+	mu sync.RWMutex
 
-	IsAdmin   		bool
-	Token 				string
-	Username 			string
-	
+	IsAdmin  bool
+	Token    string
+	Username string
+
 	// General player state
-	Stats 				PlayerStats
-	Playing 			bool // True if player has joined the game or is currently playing in the game
+	Stats   PlayerStats
+	Playing bool // True if player has joined the game or is currently playing in the game
 
 	// Game state. Should be default initialized in lobby
-	Opponent			*Player
-	CommandPoints	int
-	Board 				[GridHeight][GridWidth]int // This players point allocations
-	VisibleCommandPoints	int 							// The CommandPoints that the opponent can see. This is update at the end of each round
-	VisibleBoard [GridHeight][GridWidth]int // The board that the opponents can see. This is update at the end of each round
+	Opponent             *Player
+	CommandPoints        int
+	Board                [GridHeight][GridWidth]int // This players point allocations
+	VisibleCommandPoints int                        // The CommandPoints that the opponent can see. This is updated at the end of each round
+	VisibleBoard         [GridHeight][GridWidth]int // The board that the opponents can see. This is updated at the end of each round
 }
 
 func (p *Player) getUsername() string {
@@ -48,7 +48,7 @@ func (p *Player) getUsername() string {
 func (p *Player) getOpponent() *Player {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	
+
 	return p.Opponent
 }
 
@@ -58,8 +58,8 @@ func (p *Player) getLeaderboardData() PlayerData {
 
 	data := PlayerData{
 		Username: p.Username,
-		Stats: p.Stats,
-		Playing: p.Playing,
+		Stats:    p.Stats,
+		Playing:  p.Playing,
 	}
 
 	return data
@@ -71,8 +71,8 @@ func (p *Player) getGameData(op bool) PlayerData {
 
 	data := PlayerData{
 		Username: p.Username,
-		Stats: p.Stats,
-		Playing: p.Playing,
+		Stats:    p.Stats,
+		Playing:  p.Playing,
 	}
 
 	if op == true {
@@ -93,7 +93,7 @@ func generatePoints(row, col int, board *[GridHeight][GridWidth]int) {
 		nc := col + d[1]
 
 		if nr < 0 || nr >= GridHeight ||
-		nc < 0 || nc >= GridWidth {
+			nc < 0 || nc >= GridWidth {
 			continue
 		}
 
@@ -139,7 +139,7 @@ func (me *Player) endRound() {
 func (me *Player) endGame() {
 	me.mu.Lock()
 	defer me.mu.Unlock()
-	
+
 	op := me.Opponent
 	op.mu.Lock()
 	defer op.mu.Unlock()
@@ -193,50 +193,68 @@ func (p *Player) gotoLobby() {
 func (p *Player) start(op *Player) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.Playing == false { panic(fmt.Sprint("p.Playing is false when starting game")) }
+	if p.Playing == false {
+		panic(fmt.Sprint("p.Playing is false when starting game"))
+	}
 
-	if p.Opponent != nil { panic(fmt.Sprint("p.Opponent is not initialized to nil")) }
-	if p.CommandPoints != InitialCommandPoints { panic(fmt.Sprint("p.CommandPoints is not initialized to InitialCommandPoints")) }
-	if p.Board != ([GridHeight][GridWidth]int{}) { panic(fmt.Sprint("p.Board is not initialized to all zero")) }
-	if p.VisibleCommandPoints != InitialCommandPoints { panic(fmt.Sprint("p.OpponentCommandPoints is not initialized to InitialCommandPoints")) }
-	if p.VisibleBoard != ([GridHeight][GridWidth]int{}) { panic(fmt.Sprint("p.OpponentBoard is not initialized to all zero")) }
+	if p.Opponent != nil {
+		panic(fmt.Sprint("p.Opponent is not initialized to nil"))
+	}
+	if p.CommandPoints != InitialCommandPoints {
+		panic(fmt.Sprint("p.CommandPoints is not initialized to InitialCommandPoints"))
+	}
+	if p.Board != ([GridHeight][GridWidth]int{}) {
+		panic(fmt.Sprint("p.Board is not initialized to all zero"))
+	}
+	if p.VisibleCommandPoints != InitialCommandPoints {
+		panic(fmt.Sprint("p.OpponentCommandPoints is not initialized to InitialCommandPoints"))
+	}
+	if p.VisibleBoard != ([GridHeight][GridWidth]int{}) {
+		panic(fmt.Sprint("p.OpponentBoard is not initialized to all zero"))
+	}
 
 	p.Opponent = op
 }
 
 // Row and Col must be validated before calling move
-func (p *Player) move(row, col, reqCommandPoints int) (error) {
-	if p.Playing == false 								{ return ErrNotInGame }
-	if p.CommandPoints < reqCommandPoints { return ErrInsufficientCommandPoints }
+func (p *Player) move(row, col, reqCommandPoints int) error {
+	if p.Playing == false {
+		return ErrNotInGame
+	}
+	if p.CommandPoints < reqCommandPoints {
+		return ErrInsufficientCommandPoints
+	}
 
 	p.CommandPoints -= reqCommandPoints
 	p.Board[row][col] += reqCommandPoints
 	return nil
 }
 
-func (p *Player) join() (error) {
+func (p *Player) join() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.Playing == true { return ErrAlreadyJoined }
+	if p.Playing == true {
+		return ErrAlreadyJoined
+	}
 
 	p.Playing = true
 	return nil
 }
 
-func (p *Player) leave() (error) {
+func (p *Player) leave() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.Playing == false { return ErrNotJoined }
+	if p.Playing == false {
+		return ErrNotJoined
+	}
 
 	p.Playing = false
 	return nil
 }
 
-func (p *Player) state() (PlayerData) {
+func (p *Player) state() PlayerData {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	return PlayerData{
-		
-	}
+	return PlayerData{}
 }
