@@ -1,20 +1,23 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math/rand"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
 
-// All in-memory game state. mu is used to protect accesses to everything
+// All in-memory game state.
+// Locking scheme: If gs.mu.Lock() is held, you are free to access all internal
+// data inside of game state. If gs.mu.Rlock() is held, you must hold p.mu.Lock()
+// to edit player data or p.mu.RLock() to read player data
 type GameState struct {
 	mu         sync.RWMutex
-	NextGameID int
-
 
 	Phase          GamePhase
 	WaitingPlayers []*Player
@@ -34,11 +37,7 @@ type GameState struct {
 func NewGameState() *GameState {
 	return &GameState{
 		Players: map[string]*Player{
-			AdminToken: {
-				IsAdmin:  true,
-				Username: AdminUsername,
-				Token:    AdminToken,
-			},
+			AdminToken: NewAdminPlayer(),
 		},
 		WaitingPlayers: make([]*Player, 0),
 		PlayerZeros:    make([]*Player, 0),
@@ -48,12 +47,22 @@ func NewGameState() *GameState {
 	}
 }
 
-var gs = NewGameState()
+var (
+	gameState = NewGameState()
+	globalMu sync.RWMutex // Protects concurrent accesses to gameState. Necessary for handleReset()
+)
+
+func getGameState() *GameState {
+	globalMu.RLock()
+	defer globalMu.RUnlock()
+
+	return gameState
+} 
 
 // Registers a player into the backend player store. The players username must
 // be unique. The players are not automatically added to the game, they must
 // post a join request to be added to the gs.WaitingPlayers set
-func (gs *GameState) registerPlayer(username, token string) error {
+func (gs *GameState) registerPlayer(token, username string) error {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 
@@ -61,13 +70,7 @@ func (gs *GameState) registerPlayer(username, token string) error {
 		return ErrUsernameTaken
 	}
 
-	p := &Player{
-		Token:    token,
-		Username: username,
-
-		CommandPoints: InitialCommandPoints,
-	}
-
+	p := NewPlayer(token, username)
 	gs.Players[token] = p
 	gs.Leaderboard = append(gs.Leaderboard, p)
 
@@ -94,6 +97,9 @@ func (gs *GameState) endRound() {
 	gs.Phase = Resolving
 	var wg sync.WaitGroup
 
+	// Safe to parallelize across PlayerZeros because each p0 uniquely identifies
+	// one match, and p.endRound() only mutates that match's two players.
+	// gs.mu is held to block all external state access during round resolution.
 	for _, p := range gs.PlayerZeros {
 		wg.Add(1)
 		go func(p *Player) {
@@ -105,6 +111,25 @@ func (gs *GameState) endRound() {
 	wg.Wait()
 }
 
+func (gs *GameState) updateLeaderboard() {
+	slices.SortFunc(gs.Leaderboard, func(a, b *Player) int {
+		if r := cmp.Compare(b.Stats.Wins, a.Stats.Wins); r != 0 {
+			return r
+		}
+
+		if r := cmp.Compare(b.Stats.Losses, a.Stats.Losses); r != 0 {
+			return r
+		}
+
+		if r := cmp.Compare(b.Stats.Ties, a.Stats.Ties); r != 0 {
+			return r
+		}
+
+		// Tie-breaker: Lexicographical username
+		return strings.Compare(a.Username, b.Username)
+	})
+}
+
 func (gs *GameState) endGame() {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
@@ -112,6 +137,9 @@ func (gs *GameState) endGame() {
 	gs.Phase = Finished
 	var wg sync.WaitGroup
 
+	// Safe to parallelize across PlayerZeros because each p0 uniquely identifies
+	// one match, and p.endRound() only mutates that match's two players.
+	// gs.mu is held to block all external state access during round resolution.
 	for _, p := range gs.PlayerZeros {
 		wg.Add(1)
 		go func(p *Player) {
@@ -121,7 +149,9 @@ func (gs *GameState) endGame() {
 	}
 
 	wg.Wait()
+	gs.updateLeaderboard()
 }
+
 
 func (gs *GameState) playerFromToken(token string) (*Player, bool) {
 	gs.mu.RLock()
@@ -169,20 +199,21 @@ func (gs *GameState) handleLobby() http.Handler {
 
 			if err := validateLobby(); err != nil {
 				gs.mu.Unlock()
-				encodeError(w, ErrGameInProgress)
+				encodeError(w, err)
 				return
 			}
-
+			
+			// for local reasoning purposes only since validateLobby checks this is true
 			if gs.Phase != Finished {
-				panic(fmt.Sprint("impossible"))
-			} // for local reasoning purposes only since validateLobby checks this is true
+				panic("impossible")
+			} 
 			if len(gs.WaitingPlayers) != 0 {
 				panic(fmt.Sprint("gs.WaitingPlayers should be empty in the finished state"))
 			}
 
 			// Reinitialize game state
 			gs.Phase = Lobby
-			clear(gs.PlayerZeros)
+			gs.PlayerZeros = gs.PlayerZeros[:0]
 			gs.Round = 0
 
 			// Reinitialize player state
@@ -244,12 +275,11 @@ func (gs *GameState) handleStart() http.Handler {
 
 			// Shuffle waiting players
 			rand.Shuffle(len(gs.WaitingPlayers), func(i, j int) {
-				gs.WaitingPlayers[i], gs.WaitingPlayers[j] = gs.WaitingPlayers[j], gs.WaitingPlayers[i]
+				gs.WaitingPlayers[i], gs.WaitingPlayers[j] = 
+				gs.WaitingPlayers[j], gs.WaitingPlayers[i]
 			})
 
 			for len(gs.WaitingPlayers) >= 2 {
-				gs.NextGameID++
-
 				p0 := gs.WaitingPlayers[0]
 				p1 := gs.WaitingPlayers[1]
 				gs.WaitingPlayers = gs.WaitingPlayers[2:]
@@ -262,8 +292,8 @@ func (gs *GameState) handleStart() http.Handler {
 				// Use p0 as the identifiers for games
 				gs.PlayerZeros = append(gs.PlayerZeros, p0)
 
-				p0.start(p1)
-				p1.start(p0)
+				p0.startGame(p1)
+				p1.startGame(p0)
 			}
 
 			if len(gs.WaitingPlayers) != 0 {
@@ -329,8 +359,8 @@ func (gs *GameState) handleMove() http.Handler {
 
 		// --- game state agnostic checks ---
 
-		if row < 0 || row >= GridWidth ||
-			col < 0 || col >= GridHeight {
+		if row < 0 || row >= GridHeight ||
+			col < 0 || col >= GridWidth {
 			encodeError(w, ErrOutOfBounds)
 			return
 		}
@@ -492,10 +522,6 @@ func (gs *GameState) handleGetState() http.Handler {
 		GameData GameData `json:"gameData,omitempty"` // Only send if Phase != Lobby
 	}
 
-	validateGetState := func() error {
-		return nil
-	}
-
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := decode[GetStateRequest](r, http.MethodGet); err != nil {
 			encodeError(w, err)
@@ -510,12 +536,6 @@ func (gs *GameState) handleGetState() http.Handler {
 
 		{
 			gs.mu.RLock()
-
-			if err := validateGetState(); err != nil {
-				gs.mu.RUnlock()
-				encodeError(w, err)
-				return
-			}
 
 			response.Phase = gs.Phase
 
@@ -555,10 +575,26 @@ func (gs *GameState) handleGetState() http.Handler {
 	})
 }
 
+func (gs *GameState) handleReset() http.Handler {
+	type ResetRequest struct{}
+	type ResetResponse struct{}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := decode[ResetRequest](r, http.MethodPost); err != nil {
+			encodeError(w, err)
+			return
+		}
+		
+		globalMu.Lock()
+		gameState = NewGameState()
+		globalMu.Unlock()
+
+		encode(w, http.StatusOK, ResetResponse{})
+	})
+}
+
+
 // TODO:
 // test :(
-// update leaderboard.
-// other handlers needed:
-//		GET /leaderboard
-// 		POST /reset (maybe)
 // the getState handler might be too inefficient with all the locking. Might have to think of a different way to get the state of the game, or use caching/versioning to reduce the computation.
+// timer go routine should be canceled when handleReset is called. 

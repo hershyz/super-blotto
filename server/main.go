@@ -9,13 +9,14 @@ import (
 func main() {
 	http.Handle("/register", handleRegister())
 
-	http.Handle("/state", validate(gs.handleGetState()))
-	http.Handle("/move", validate(gs.handleMove()))
-	http.Handle("/join", validate(gs.handleJoin()))
-	http.Handle("/leave", validate(gs.handleLeave()))
+	http.Handle("/state", validate((*GameState).handleGetState))
+	http.Handle("/move", validate((*GameState).handleMove))
+	http.Handle("/join", validate((*GameState).handleJoin))
+	http.Handle("/leave", validate((*GameState).handleLeave))
 
-	http.Handle("/start", adminOnly(gs.handleStart()))
-	http.Handle("/lobby", adminOnly(gs.handleLobby()))
+	http.Handle("/start", adminOnly((*GameState).handleStart))
+	http.Handle("/lobby", adminOnly((*GameState).handleLobby))
+	http.Handle("/reset", adminOnly((*GameState).handleReset))
 
 	addr := ":8080"
 	fmt.Printf("Server listening on %s\n", addr)

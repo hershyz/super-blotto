@@ -33,60 +33,34 @@ type Player struct {
 	// Game state. Should be default initialized in lobby
 	Opponent             *Player
 	CommandPoints        int
-	Board                [GridHeight][GridWidth]int // This players point allocations
 	VisibleCommandPoints int                        // The CommandPoints that the opponent can see. This is updated at the end of each round
+	Board                [GridHeight][GridWidth]int // This players point allocations
 	VisibleBoard         [GridHeight][GridWidth]int // The board that the opponents can see. This is updated at the end of each round
 }
 
-func (p *Player) getUsername() string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+func NewPlayer(token, username string) *Player {
+	return &Player{
+		Token:    token,
+		Username: username,
 
-	return p.Username
-}
-
-func (p *Player) getOpponent() *Player {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	return p.Opponent
-}
-
-func (p *Player) getLeaderboardData() PlayerData {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	data := PlayerData{
-		Username: p.Username,
-		Stats:    p.Stats,
-		Playing:  p.Playing,
+		CommandPoints: 				InitialCommandPoints,
+		VisibleCommandPoints: InitialCommandPoints,
 	}
-
-	return data
 }
 
-func (p *Player) getGameData(op bool) PlayerData {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+func NewAdminPlayer() *Player {
+	return &Player{
+		IsAdmin:  true,
+		Username: AdminUsername,
+		Token:    AdminToken,
 
-	data := PlayerData{
-		Username: p.Username,
-		Stats:    p.Stats,
-		Playing:  p.Playing,
+		CommandPoints: 				InitialCommandPoints,
+		VisibleCommandPoints: InitialCommandPoints,
 	}
-
-	if op == true {
-		data.CommandPoints = p.VisibleCommandPoints
-		data.Board = p.VisibleBoard
-	} else {
-		data.CommandPoints = p.CommandPoints
-		data.Board = p.Board
-	}
-
-	return data
 }
 
-// All functions are called assuming the caller holds the gs.mu lock
+// --- gs.Lock() held ---
+
 func generatePoints(row, col int, board *[GridHeight][GridWidth]int) {
 	for _, d := range dirs {
 		nr := row + d[0]
@@ -103,20 +77,19 @@ func generatePoints(row, col int, board *[GridHeight][GridWidth]int) {
 
 // Only ever called on p0
 func (me *Player) endRound() {
-	me.mu.Lock()
-	defer me.mu.Unlock()
-
 	op := me.Opponent
-	op.mu.Lock()
-	defer op.mu.Unlock()
 
+	// myBoard and opBoard represent the next state of the board
+	// Use me.Board and op.Board when determining which player
+	// owns a cell so that newly generated points don't affect
+	// later comparisons
 	myBoard := me.Board
 	opBoard := op.Board
 
 	for row := 0; row < GridHeight; row++ {
 		for col := 0; col < GridWidth; col++ {
-			myPoints := myBoard[row][col]
-			opPoints := opBoard[row][col]
+			myPoints := me.Board[row][col]
+			opPoints := op.Board[row][col]
 
 			if myPoints > opPoints {
 				generatePoints(row, col, &myBoard)
@@ -133,27 +106,21 @@ func (me *Player) endRound() {
 
 	me.VisibleBoard = myBoard
 	op.VisibleBoard = opBoard
+	me.VisibleCommandPoints = me.CommandPoints
+	op.VisibleCommandPoints = op.CommandPoints
 }
 
 // Only ever called on p0
 func (me *Player) endGame() {
-	me.mu.Lock()
-	defer me.mu.Unlock()
-
 	op := me.Opponent
-	op.mu.Lock()
-	defer op.mu.Unlock()
-
-	myBoard := me.Board
-	opBoard := op.Board
 
 	myCount := 0
 	opCount := 0
 
 	for row := 0; row < GridHeight; row++ {
 		for col := 0; col < GridWidth; col++ {
-			myPoints := myBoard[row][col]
-			opPoints := opBoard[row][col]
+			myPoints := me.Board[row][col]
+			opPoints := op.Board[row][col]
 
 			if myPoints > opPoints {
 				myCount++
@@ -178,36 +145,31 @@ func (me *Player) endGame() {
 }
 
 func (p *Player) gotoLobby() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	p.Playing = false
-
 	p.Opponent = nil
-	p.CommandPoints = InitialCommandPoints
-	p.Board = [GridHeight][GridWidth]int{}
-	p.VisibleCommandPoints = InitialCommandPoints
-	p.VisibleBoard = [GridHeight][GridWidth]int{}
+
+	p.CommandPoints 				= InitialCommandPoints
+	p.VisibleCommandPoints 	= InitialCommandPoints
+
+	p.Board 				= [GridHeight][GridWidth]int{}
+	p.VisibleBoard 	= [GridHeight][GridWidth]int{}
 }
 
-func (p *Player) start(op *Player) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (p *Player) startGame(op *Player) {
 	if p.Playing == false {
 		panic(fmt.Sprint("p.Playing is false when starting game"))
 	}
-
 	if p.Opponent != nil {
 		panic(fmt.Sprint("p.Opponent is not initialized to nil"))
 	}
 	if p.CommandPoints != InitialCommandPoints {
 		panic(fmt.Sprint("p.CommandPoints is not initialized to InitialCommandPoints"))
 	}
-	if p.Board != ([GridHeight][GridWidth]int{}) {
-		panic(fmt.Sprint("p.Board is not initialized to all zero"))
-	}
 	if p.VisibleCommandPoints != InitialCommandPoints {
 		panic(fmt.Sprint("p.OpponentCommandPoints is not initialized to InitialCommandPoints"))
+	}
+	if p.Board != ([GridHeight][GridWidth]int{}) {
+		panic(fmt.Sprint("p.Board is not initialized to all zero"))
 	}
 	if p.VisibleBoard != ([GridHeight][GridWidth]int{}) {
 		panic(fmt.Sprint("p.OpponentBoard is not initialized to all zero"))
@@ -216,8 +178,68 @@ func (p *Player) start(op *Player) {
 	p.Opponent = op
 }
 
+func (p *Player) join() error {
+	if p.Playing == true {
+		return ErrAlreadyJoined
+	}
+
+	p.Playing = true
+	return nil
+}
+
+func (p *Player) leave() error {
+	if p.Playing == false {
+		return ErrNotJoined
+	}
+
+	p.Playing = false
+	return nil
+}
+
+
+// --- gs.RLock() held ---
+
+
+func (p *Player) getUsername() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.Username
+}
+
+func (p *Player) getOpponent() *Player {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.Opponent
+}
+
+func (p *Player) getGameData(op bool) PlayerData {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	data := PlayerData{
+		Username: p.Username,
+		Stats:    p.Stats,
+		Playing:  p.Playing,
+	}
+
+	if op == true {
+		data.CommandPoints = p.VisibleCommandPoints
+		data.Board = p.VisibleBoard
+	} else {
+		data.CommandPoints = p.CommandPoints
+		data.Board = p.Board
+	}
+
+	return data
+}
+
 // Row and Col must be validated before calling move
 func (p *Player) move(row, col, reqCommandPoints int) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if p.Playing == false {
 		return ErrNotInGame
 	}
@@ -230,31 +252,15 @@ func (p *Player) move(row, col, reqCommandPoints int) error {
 	return nil
 }
 
-func (p *Player) join() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.Playing == true {
-		return ErrAlreadyJoined
-	}
-
-	p.Playing = true
-	return nil
-}
-
-func (p *Player) leave() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.Playing == false {
-		return ErrNotJoined
-	}
-
-	p.Playing = false
-	return nil
-}
-
-func (p *Player) state() PlayerData {
+func (p *Player) getLeaderboardData() PlayerData {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	return PlayerData{}
+	data := PlayerData{
+		Username: p.Username,
+		Stats:    p.Stats,
+		Playing:  p.Playing,
+	}
+
+	return data
 }

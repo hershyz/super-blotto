@@ -42,7 +42,7 @@ func handleRegister() http.Handler {
 			return
 		}
 
-		if err = gs.registerPlayer(req.Username, token); err != nil {
+		if err = getGameState().registerPlayer(token, req.Username); err != nil {
 			encodeError(w, err)
 			return
 		}
@@ -52,10 +52,11 @@ func handleRegister() http.Handler {
 }
 
 // validate checks the Authorization header for valid token before handling request
-func validate(h http.Handler) http.Handler {
+func validate(f func(*GameState) http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
 
+		gs := getGameState()
 		p, exists := gs.playerFromToken(token)
 
 		if exists == false {
@@ -65,14 +66,15 @@ func validate(h http.Handler) http.Handler {
 
 		ctx := context.WithValue(r.Context(), playerKey{}, p)
 
-		h.ServeHTTP(w, r.WithContext(ctx))
+		f(gs).ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-func adminOnly(h http.Handler) http.Handler {
+func adminOnly(f func(*GameState) http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
-
+		
+		gs := getGameState()
 		p, exists := gs.playerFromToken(token)
 
 		if exists == false || p.IsAdmin == false {
@@ -80,6 +82,6 @@ func adminOnly(h http.Handler) http.Handler {
 			return
 		}
 
-		h.ServeHTTP(w, r)
+		f(gs).ServeHTTP(w, r)
 	})
 }
