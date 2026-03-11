@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"math/rand"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"sync"
 	"time"
@@ -103,8 +103,8 @@ func (gs *GameState) endRound() {
 		// Theoretically, each endRound calculation should be disjoin for one another, so can do it in parallel. Could be wrong tho. Also, this part doesn't really need to be fast so whateva
 		wg.Add(1)
 		go func(g *Game) { 
-			defer wg.Done() 
-			g.endRound() 
+			defer wg.Done()
+			g.endRound()
 		}(g)
 	}
 
@@ -452,11 +452,66 @@ func (gs *GameState) handleLeave() http.Handler {
 	})
 }
 
-// TODO: 
+// Returns the current game state for the requesting player.
+// Wrapped with validate() so playerKey is always set in context.
+func (gs *GameState) handleState() http.Handler {
+	type stateResponse struct {
+		Round         int                              `json:"round"`
+		Phase         string                           `json:"phase"`
+		RoundEndTime  time.Time                        `json:"roundEndTime"`
+		CommandPoints int                              `json:"commandPoints"`
+		Role          int                              `json:"role"`
+		Board         *[GridHeight][GridWidth][2]int   `json:"board,omitempty"`
+	}
+
+	phaseStr := func(p GamePhase) string {
+		switch p {
+		case Lobby:     return "lobby"
+		case Playing:   return "playing"
+		case Resolving: return "resolving"
+		case Finished:  return "finished"
+		default:        return "unknown"
+		}
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p, ok := playerFromContext(r.Context())
+		if !ok {
+			panic(fmt.Sprint("playerFromContext failed in state handler"))
+		}
+
+		gs.mu.RLock()
+		defer gs.mu.RUnlock()
+
+		resp := stateResponse{
+			Round:        gs.Round,
+			Phase:        phaseStr(gs.Phase),
+			RoundEndTime: gs.RoundEndTime,
+			Role:         int(p.Role),
+		}
+
+		if p.GameID != NullGameID {
+			g, exists := gs.Games[p.GameID]
+			if exists {
+				resp.CommandPoints = g.CommandPoints[p.Role]
+				var board [GridHeight][GridWidth][2]int
+				for row := 0; row < GridHeight; row++ {
+					for col := 0; col < GridWidth; col++ {
+						board[row][col] = g.Board[row][col].Points
+					}
+				}
+				resp.Board = &board
+			}
+		}
+
+		encode(w, http.StatusOK, resp)
+	})
+}
+
+// TODO:
 // test :(
 // update leaderboard.
-// other handlers needed: 
-// 		GET /state
-//		GET /leaderboard 
+// other handlers needed:
+//		GET /leaderboard
 // 		POST /reset (maybe)
 
