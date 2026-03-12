@@ -1,3 +1,5 @@
+// to run: cd server && go run .
+
 package main
 
 import (

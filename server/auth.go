@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"log"
 	"net/http"
 )
 
@@ -47,6 +48,7 @@ func handleRegister() http.Handler {
 			return
 		}
 
+		log.Printf("player registered: username=%s token=%s", req.Username, token)
 		encode(w, http.StatusOK, registerResponse{Token: token})
 	})
 }
