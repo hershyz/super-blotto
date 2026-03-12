@@ -26,7 +26,7 @@ func handleRegister() http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		req, err := decode[registerRequest](r, http.MethodPost) 
+		req, err := decode[registerRequest](r, http.MethodPost)
 		if err != nil {
 			encodeError(w, err)
 			return

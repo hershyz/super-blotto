@@ -3,12 +3,12 @@ package main
 type CellData struct {
 	Points [2]int
 }
- 
+
 type Game struct {
-	ID 						int
-	Players				[2]*Player
-	CommandPoints	[2]int
-	Board 				[GridHeight][GridWidth]CellData
+	ID            int
+	Players       [2]*Player
+	CommandPoints [2]int
+	Board         [GridHeight][GridWidth]CellData
 }
 
 // All functions are called assuming the caller holds the gs.mu lock
@@ -19,7 +19,7 @@ func (g *Game) generatePoints(row, col int, role PlayerRole) {
 		nc := col + d[1]
 
 		if nr < 0 || nr >= GridHeight ||
-		nc < 0 || nc >= GridWidth {
+			nc < 0 || nc >= GridWidth {
 			continue
 		}
 
@@ -73,8 +73,10 @@ func (g *Game) endGame() {
 }
 
 // Row and Col must be validated before calling move
-func (g *Game) move(row, col, reqCommandPoints int, role PlayerRole) (error) {
-	if g.CommandPoints[role] < reqCommandPoints { return ErrInsufficientCommandPoints }
+func (g *Game) move(row, col, reqCommandPoints int, role PlayerRole) error {
+	if g.CommandPoints[role] < reqCommandPoints {
+		return ErrInsufficientCommandPoints
+	}
 
 	g.CommandPoints[role] -= reqCommandPoints
 	g.Board[row][col].Points[role] += reqCommandPoints
