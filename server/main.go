@@ -19,7 +19,7 @@ func main() {
 	http.Handle("/start", adminOnly(gs.handleStart()))
 	http.Handle("/lobby", adminOnly(gs.handleLobby()))
 
-	addr := ":8080"
+	addr := ":3000"
 	fmt.Printf("Server listening on %s\n", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }
