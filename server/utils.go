@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
+	"os"
 )
 
 type ErrorResponse struct {
@@ -83,6 +85,14 @@ var (
 	}
 )
 
+var AdminToken = func() string {
+	token := os.Getenv("ADMIN_TOKEN")
+	if token == "" {
+		log.Fatal("ADMIN_TOKEN environment variable is required")
+	}
+	return token
+}()
+
 const (
 	NullGameID           = 0
 	GridHeight           = 10
@@ -90,7 +100,6 @@ const (
 	InitialCommandPoints = 1000
 	TotalRounds          = 10
 	TimePerRound         = 30
-	AdminToken           = "AdminToken"
 )
 
 type GamePhase int
