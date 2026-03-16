@@ -1,5 +1,6 @@
 # imports
 import sys
+import time
 import requests
 
 
@@ -72,6 +73,21 @@ def main():
         sys.exit(1)
 
     print(f"Registration successful! Your token: {token}")
+
+    time.sleep(1)
+
+    print("Joining lobby...")
+    try:
+        resp = api_join(token)
+    except requests.RequestException as e:
+        print(f"Error: could not connect to server: {e}")
+        sys.exit(1)
+
+    if "error" in resp:
+        print(f"Failed to join lobby: {resp['error']}")
+        sys.exit(1)
+
+    print("Joined lobby!")
 
 
 if __name__ == "__main__":

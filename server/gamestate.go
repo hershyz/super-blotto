@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
 	"sync"
@@ -44,6 +45,7 @@ var gs = &GameState{
 	Players: make(map[string]*Player),
 	WaitingPlayers: make(map[*Player]struct{}),
 	Games:          make(map[int]*Game),
+	Phase:          Lobby,
 
 	UsedUsernames: make(map[string]struct{}),
 }
@@ -425,8 +427,11 @@ func (gs *GameState) handleJoin() http.Handler {
 
 			p.Participating = true
 			gs.WaitingPlayers[p] = struct{}{}
+			count := len(gs.WaitingPlayers)
 
 			gs.mu.Unlock()
+
+			log.Printf("player joined lobby: username=%s (%d players waiting)", p.Username, count)
 		}
 
 		encode(w, http.StatusOK, joinResponse{})
