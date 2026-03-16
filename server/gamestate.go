@@ -485,6 +485,21 @@ func (gs *GameState) handleLeave() http.Handler {
 	})
 }
 
+func phaseStr(p GamePhase) string {
+	switch p {
+	case Lobby:
+		return "lobby"
+	case Playing:
+		return "playing"
+	case Resolving:
+		return "resolving"
+	case Finished:
+		return "finished"
+	default:
+		return "unknown"
+	}
+}
+
 // Returns the current game state for the requesting player.
 // Wrapped with validate() so playerKey is always set in context.
 func (gs *GameState) handleState() http.Handler {
@@ -495,21 +510,6 @@ func (gs *GameState) handleState() http.Handler {
 		CommandPoints int                            `json:"commandPoints"`
 		Role          int                            `json:"role"`
 		Board         *[GridHeight][GridWidth][2]int `json:"board,omitempty"`
-	}
-
-	phaseStr := func(p GamePhase) string {
-		switch p {
-		case Lobby:
-			return "lobby"
-		case Playing:
-			return "playing"
-		case Resolving:
-			return "resolving"
-		case Finished:
-			return "finished"
-		default:
-			return "unknown"
-		}
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -540,6 +540,34 @@ func (gs *GameState) handleState() http.Handler {
 				}
 				resp.Board = &board
 			}
+		}
+
+		encode(w, http.StatusOK, resp)
+	})
+}
+
+// Returns the current lobby state: phase, player count, and list of waiting player usernames.
+// Wrapped with validate() so playerKey is always set in context.
+func (gs *GameState) handleLobbyState() http.Handler {
+	type lobbyStateResponse struct {
+		Phase   string   `json:"phase"`
+		Players []string `json:"players"`
+		Count   int      `json:"count"`
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gs.mu.RLock()
+		defer gs.mu.RUnlock()
+
+		players := make([]string, 0, len(gs.WaitingPlayers))
+		for p := range gs.WaitingPlayers {
+			players = append(players, p.Username)
+		}
+
+		resp := lobbyStateResponse{
+			Phase:   phaseStr(gs.Phase),
+			Players: players,
+			Count:   len(players),
 		}
 
 		encode(w, http.StatusOK, resp)

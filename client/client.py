@@ -1,4 +1,5 @@
 # imports
+import os
 import sys
 import time
 import requests
@@ -39,6 +40,57 @@ def api_start(token):
 def api_lobby(token):
     r = requests.post(f"{HOSTNAME}/lobby", json={}, headers={"Authorization": token})
     return r.json()
+
+def api_lobby_state(token):
+    r = requests.get(f"{HOSTNAME}/lobbyState", headers={"Authorization": token})
+    return r.json()
+
+
+def clear_screen():
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+def render_lobby(players, count):
+    clear_screen()
+    print("=" * 40)
+    print("           SUPER BLOTTO LOBBY")
+    print("=" * 40)
+    print(f"  Players waiting: {count}")
+    print("-" * 40)
+    for p in players:
+        print(f"  > {p}")
+    print("-" * 40)
+    print("  Waiting for admin to start game...")
+    print("=" * 40)
+
+
+def in_lobby(token):
+    prev_players = None
+
+    while True:
+        try:
+            resp = api_lobby_state(token)
+        except requests.RequestException as e:
+            print(f"Error polling lobby: {e}")
+            time.sleep(2)
+            continue
+
+        phase = resp.get("phase")
+        if phase != "lobby":
+            clear_screen()
+            print("=" * 40)
+            print("        GAME IS STARTING!")
+            print("=" * 40)
+            return
+
+        players = resp.get("players", [])
+        count = resp.get("count", 0)
+
+        if sorted(players) != prev_players:
+            prev_players = sorted(players)
+            render_lobby(prev_players, count)
+
+        time.sleep(1)
 
 
 # client flow
@@ -88,6 +140,8 @@ def main():
         sys.exit(1)
 
     print("Joined lobby!")
+
+    in_lobby(token)
 
 
 if __name__ == "__main__":
