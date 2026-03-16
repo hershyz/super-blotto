@@ -106,20 +106,10 @@ def render_game(state, moves_this_round, revealed_board, message=""):
     round_end_time = state["round_end_time"]
     phase = state["phase"]
 
-    # Compute timer
-    if round_end_time:
-        try:
-            end_dt = datetime.fromisoformat(round_end_time.replace("Z", "+00:00"))
-            remaining = max(0, int((end_dt - datetime.now(timezone.utc)).total_seconds()))
-        except (ValueError, TypeError):
-            remaining = 0
-    else:
-        remaining = 0
-
     phase_display = phase.upper() if phase != "playing" else ""
-    timer_str = f"Time: {remaining}s" if phase == "playing" else phase_display
+    phase_str = f" | {phase_display}" if phase_display else ""
 
-    print(f"Round {round_num}/10 | CP: {cp} | {timer_str} | You are Player {role}")
+    print(f"Round {round_num}/10 | CP: {cp}{phase_str} | You are Player {role}")
     print()
 
     if board is None:
@@ -166,7 +156,16 @@ def render_game(state, moves_this_round, revealed_board, message=""):
     if message:
         print(f"  {message}")
 
-    print("Enter move as: row,col,cp (e.g. 4,5,30)")
+    # Compute timer
+    if round_end_time and phase == "playing":
+        try:
+            end_dt = datetime.fromisoformat(round_end_time.replace("Z", "+00:00"))
+            remaining = max(0, int((end_dt - datetime.now(timezone.utc)).total_seconds()))
+        except (ValueError, TypeError):
+            remaining = 0
+        print(f"{remaining}s left in round | Enter move as: row,col,cp")
+    else:
+        print("Enter move as: row,col,cp")
 
 
 def in_game(token):
