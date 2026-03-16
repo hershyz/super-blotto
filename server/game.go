@@ -23,21 +23,22 @@ func (g *Game) generatePoints(row, col int, role PlayerRole) {
 			continue
 		}
 
-		g.CommandPoints[role] += 5
+		g.Board[nr][nc].Points[role] += 5
 	}
 }
 
 func (g *Game) endRound() {
+	// Snapshot control before mutating the board
+	snapshot := g.Board
+
 	for row := 0; row < GridHeight; row++ {
 		for col := 0; col < GridWidth; col++ {
-			points := g.Board[row][col].Points
+			points := snapshot[row][col].Points
 
 			if points[Player0] > points[Player1] {
 				g.generatePoints(row, col, Player0)
 			} else if points[Player0] < points[Player1] {
 				g.generatePoints(row, col, Player1)
-			} else {
-				continue
 			}
 		}
 	}
