@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import threading
 import requests
 
 
@@ -23,35 +24,73 @@ def clear_screen():
     os.system("cls" if os.name == "nt" else "clear")
 
 
-def render_status(status):
+def api_start(token):
+    r = requests.post(f"{HOSTNAME}/start", json={}, headers={"Authorization": token})
+    return r.json()
+
+
+def render_status(status, message=""):
     clear_screen()
     print("=" * 40)
     print("          ADMIN DASHBOARD")
     print("=" * 40)
-    print(f"  Phase:        {status.get('phase')}")
-    print(f"  Round:        {status.get('round')}")
-    print(f"  Registered:   {status.get('registeredCount')}")
-    print(f"  In lobby:     {status.get('waitingCount')}")
-    print(f"  Rounds:       {status.get('round')}")
+    print(f"  Phase:      {status.get('phase')}")
+    print(f"  Round:      {status.get('round')}")
+    print(f"  Registered: {status.get('registeredCount')}")
+    print(f"  In lobby:   {status.get('waitingCount')}")
+    print("-" * 40)
+    print("  Commands: start, quit")
     print("=" * 40)
+    if message:
+        print(f"  {message}")
 
 
 def admin_monitor(token):
     prev_status = None
+    last_message = ""
+    lock = threading.Lock()
+
+    def poll():
+        nonlocal prev_status
+        while True:
+            try:
+                status = api_admin_status(token)
+            except requests.RequestException:
+                time.sleep(2)
+                continue
+
+            with lock:
+                if status != prev_status:
+                    prev_status = status
+                    render_status(status, last_message)
+
+            time.sleep(1)
+
+    t = threading.Thread(target=poll, daemon=True)
+    t.start()
 
     while True:
         try:
-            status = api_admin_status(token)
-        except requests.RequestException as e:
-            print(f"Error polling status: {e}")
-            time.sleep(2)
-            continue
+            cmd = input().strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            break
 
-        if status != prev_status:
-            prev_status = status
-            render_status(status)
+        msg = ""
+        if cmd == "start":
+            try:
+                resp = api_start(token)
+                msg = f"start: {resp}" if "error" in resp else "Game started!"
+            except requests.RequestException as e:
+                msg = f"Error: {e}"
+        elif cmd == "quit":
+            break
+        else:
+            msg = f"Unknown command: {cmd}"
 
-        time.sleep(1)
+        with lock:
+            last_message = msg
+            if prev_status:
+                render_status(prev_status, last_message)
 
 
 # admin flow

@@ -122,6 +122,19 @@ func (gs *GameState) endGame() {
 	}
 
 	wg.Wait()
+
+	// Automatically reopen the lobby
+	clear(gs.Games)
+	gs.Round = 0
+	gs.Phase = Lobby
+
+	for _, p := range gs.Players {
+		p.Participating = false
+		p.GameID = NullGameID
+		p.Role = None
+	}
+
+	log.Println("game finished, lobby reopened")
 }
 
 func (gs *GameState) playerFromToken(token string) (*Player, bool) {
