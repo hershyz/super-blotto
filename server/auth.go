@@ -71,6 +71,27 @@ func validate(h http.Handler) http.Handler {
 	})
 }
 
+func handleAdminStatus() http.Handler {
+	type adminStatusResponse struct {
+		Phase         string `json:"phase"`
+		Round         int    `json:"round"`
+		WaitingCount  int    `json:"waitingCount"`
+		RegisteredCount int  `json:"registeredCount"`
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gs.mu.RLock()
+		defer gs.mu.RUnlock()
+
+		encode(w, http.StatusOK, adminStatusResponse{
+			Phase:           phaseStr(gs.Phase),
+			Round:           gs.Round,
+			WaitingCount:    len(gs.WaitingPlayers),
+			RegisteredCount: len(gs.Players),
+		})
+	})
+}
+
 func handleAdminPing() http.Handler {
 	type adminPingResponse struct{}
 

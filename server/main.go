@@ -18,6 +18,7 @@ func main() {
 	http.Handle("/lobbyState", validate(gs.handleLobbyState()))
 
 	http.Handle("/adminPing", adminOnly(handleAdminPing()))
+	http.Handle("/adminStatus", adminOnly(handleAdminStatus()))
 	http.Handle("/start", adminOnly(gs.handleStart()))
 	http.Handle("/lobby", adminOnly(gs.handleLobby()))
 
