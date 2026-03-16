@@ -16,6 +16,7 @@ func main() {
 	http.Handle("/join", validate(gs.handleJoin()))
 	http.Handle("/leave", validate(gs.handleLeave()))
 
+	http.Handle("/adminPing", adminOnly(handleAdminPing()))
 	http.Handle("/start", adminOnly(gs.handleStart()))
 	http.Handle("/lobby", adminOnly(gs.handleLobby()))
 

@@ -71,6 +71,14 @@ func validate(h http.Handler) http.Handler {
 	})
 }
 
+func handleAdminPing() http.Handler {
+	type adminPingResponse struct{}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		encode(w, http.StatusOK, adminPingResponse{})
+	})
+}
+
 func adminOnly(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
