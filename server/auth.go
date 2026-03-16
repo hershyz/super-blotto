@@ -1,25 +1,12 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
+	"log"
 	"net/http"
-	"sync"
 )
-
-var (
-	tokenStore = make(map[string]string) // username -> token
-	storeMu    sync.RWMutex
-)
-
-type registerRequest struct {
-	Username string `json:"username"`
-}
-
-type registerResponse struct {
-	Token string `json:"token"`
-}
 
 func generateToken() (string, error) {
 	b := make([]byte, 16)
@@ -29,49 +16,99 @@ func generateToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func handleRegister(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
+func handleRegister() http.Handler {
+	type registerRequest struct {
+		Username string `json:"username"`
 	}
 
-	var req registerRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	if req.Username == "" {
-		http.Error(w, "username is required", http.StatusBadRequest)
-		return
+	type registerResponse struct {
+		Token string `json:"token"`
 	}
 
-	token, err := generateToken()
-	if err != nil {
-		http.Error(w, "failed to generate token", http.StatusInternalServerError)
-		return
-	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req, err := decode[registerRequest](r, http.MethodPost)
+		if err != nil {
+			encodeError(w, err)
+			return
+		}
 
-	storeMu.Lock()
-	tokenStore[req.Username] = token
-	storeMu.Unlock()
+		if req.Username == "" {
+			encodeError(w, ErrUsernameRequired)
+			return
+		}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(registerResponse{Token: token})
+		token, err := generateToken()
+		if err != nil {
+			encodeError(w, ErrGeneratingToken)
+			return
+		}
+
+		if err = gs.registerPlayer(req.Username, token); err != nil {
+			encodeError(w, err)
+			return
+		}
+
+		log.Printf("player registered: username=%s token=%s", req.Username, token)
+		encode(w, http.StatusOK, registerResponse{Token: token})
+	})
 }
 
-// validateToken checks the Authorization header and returns the username if valid.
-func validateToken(r *http.Request) (string, bool) {
-	token := r.Header.Get("Authorization")
-	if token == "" {
-		return "", false
+// validate checks the Authorization header for valid token before handling request
+func validate(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+
+		p, exists := gs.playerFromToken(token)
+
+		if exists == false {
+			encodeError(w, ErrInvalidToken)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), playerKey{}, p)
+
+		h.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+func handleAdminStatus() http.Handler {
+	type adminStatusResponse struct {
+		Phase         string `json:"phase"`
+		Round         int    `json:"round"`
+		WaitingCount  int    `json:"waitingCount"`
+		RegisteredCount int  `json:"registeredCount"`
 	}
 
-	storeMu.RLock()
-	defer storeMu.RUnlock()
-	for username, t := range tokenStore {
-		if t == token {
-			return username, true
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gs.mu.RLock()
+		defer gs.mu.RUnlock()
+
+		encode(w, http.StatusOK, adminStatusResponse{
+			Phase:           phaseStr(gs.Phase),
+			Round:           gs.Round,
+			WaitingCount:    len(gs.WaitingPlayers),
+			RegisteredCount: len(gs.Players),
+		})
+	})
+}
+
+func handleAdminPing() http.Handler {
+	type adminPingResponse struct{}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		encode(w, http.StatusOK, adminPingResponse{})
+	})
+}
+
+func adminOnly(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := r.Header.Get("Authorization")
+
+		if token != AdminToken {
+			http.NotFound(w, r)
+			return
 		}
-	}
-	return "", false
+
+		h.ServeHTTP(w, r)
+	})
 }
