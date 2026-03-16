@@ -2,7 +2,9 @@
 import os
 import sys
 import time
+import threading
 import requests
+from datetime import datetime, timezone
 
 
 # consts
@@ -81,6 +83,7 @@ def in_lobby(token):
             print("=" * 40)
             print("        GAME IS STARTING!")
             print("=" * 40)
+            time.sleep(1)
             return
 
         players = resp.get("players", [])
@@ -91,6 +94,204 @@ def in_lobby(token):
             render_lobby(prev_players, count)
 
         time.sleep(1)
+
+
+def render_game(state, moves_this_round, revealed_board, message=""):
+    clear_screen()
+
+    round_num = state["round"]
+    cp = state["command_points"]
+    role = state["role"]
+    board = state["board"]
+    round_end_time = state["round_end_time"]
+    phase = state["phase"]
+
+    # Compute timer
+    if round_end_time:
+        try:
+            end_dt = datetime.fromisoformat(round_end_time.replace("Z", "+00:00"))
+            remaining = max(0, int((end_dt - datetime.now(timezone.utc)).total_seconds()))
+        except (ValueError, TypeError):
+            remaining = 0
+    else:
+        remaining = 0
+
+    phase_display = phase.upper() if phase != "playing" else ""
+    timer_str = f"Time: {remaining}s" if phase == "playing" else phase_display
+
+    print(f"Round {round_num}/10 | CP: {cp} | {timer_str} | You are Player {role}")
+    print()
+
+    if board is None:
+        print("  Waiting for board data...")
+        if message:
+            print(f"\n  {message}")
+        return
+
+    # Column headers
+    header = "     "
+    for c in range(10):
+        header += f" {c:^4}"
+    print(header)
+
+    separator = "  +" + "----+" * 10
+
+    for r in range(10):
+        print(separator)
+
+        # Top row: opponent CP (show last revealed state during play)
+        top = f"{r} |"
+        for c in range(10):
+            opp_board = revealed_board if revealed_board else board
+            opp_cp = opp_board[r][c][1 - role]
+            top += f"{opp_cp:>4}|" if opp_cp else "    |"
+        print(top)
+
+        # Bottom row: your CP
+        bot = "  |"
+        for c in range(10):
+            my_cp = board[r][c][role]
+            bot += f"{my_cp:>4}|" if my_cp else "    |"
+        print(bot)
+
+    print(separator)
+    print()
+
+    if moves_this_round:
+        print("Moves this round:")
+        move_strs = [f"  ({m[0]},{m[1]}) +{m[2]}cp" for m in moves_this_round]
+        print("".join(move_strs))
+        print()
+
+    if message:
+        print(f"  {message}")
+
+    print("Enter move as: row,col,cp (e.g. 4,5,30)")
+
+
+def in_game(token):
+    state = {
+        "round": 0,
+        "phase": "playing",
+        "round_end_time": None,
+        "command_points": 0,
+        "role": 0,
+        "board": None,
+    }
+    moves_this_round = []
+    revealed_board = None  # opponent board snapshot from last round transition
+    last_message = ""
+    lock = threading.Lock()
+    game_over = threading.Event()
+
+    def poll():
+        nonlocal state, moves_this_round, revealed_board
+        prev_round = 0
+        prev_render_key = None
+
+        while not game_over.is_set():
+            try:
+                resp = api_state(token)
+            except requests.RequestException:
+                time.sleep(2)
+                continue
+
+            phase = resp.get("phase", "")
+
+            with lock:
+                new_round = resp.get("round", 0)
+                if new_round != prev_round:
+                    # Snapshot the board at round transition — this is the
+                    # resolved state that includes opponent moves from last round
+                    revealed_board = resp.get("board")
+                    moves_this_round = []
+                    prev_round = new_round
+
+                state = {
+                    "round": new_round,
+                    "phase": phase,
+                    "round_end_time": resp.get("roundEndTime", ""),
+                    "command_points": resp.get("commandPoints", 0),
+                    "role": resp.get("role", 0),
+                    "board": resp.get("board"),
+                }
+
+                if phase in ("lobby", "finished"):
+                    render_game(state, moves_this_round, None, last_message)
+                    game_over.set()
+                    return
+
+                # Only re-render on changes visible to this player
+                render_key = (new_round, phase, state["command_points"])
+                if render_key != prev_render_key:
+                    prev_render_key = render_key
+                    render_game(state, moves_this_round, revealed_board, last_message)
+
+            time.sleep(1)
+
+    t = threading.Thread(target=poll, daemon=True)
+    t.start()
+
+    while not game_over.is_set():
+        try:
+            line = input().strip()
+        except (EOFError, KeyboardInterrupt):
+            game_over.set()
+            break
+
+        if game_over.is_set():
+            break
+
+        if not line:
+            continue
+
+        parts = line.split(",")
+        if len(parts) != 3:
+            with lock:
+                last_message = "Invalid format. Use: row,col,cp"
+                render_game(state, moves_this_round, revealed_board, last_message)
+            continue
+
+        try:
+            row, col, cp = int(parts[0]), int(parts[1]), int(parts[2])
+        except ValueError:
+            with lock:
+                last_message = "Invalid numbers. Use: row,col,cp"
+                render_game(state, moves_this_round, revealed_board, last_message)
+            continue
+
+        if cp <= 0:
+            with lock:
+                last_message = "CP must be positive."
+                render_game(state, moves_this_round, revealed_board, last_message)
+            continue
+
+        with lock:
+            current_round = state["round"]
+
+        try:
+            resp = api_move(token, current_round, row, col, cp)
+        except requests.RequestException as e:
+            with lock:
+                last_message = f"Network error: {e}"
+                render_game(state, moves_this_round, revealed_board, last_message)
+            continue
+
+        if "error" in resp:
+            with lock:
+                last_message = f"Move failed: {resp['error']}"
+                render_game(state, moves_this_round, revealed_board, last_message)
+        else:
+            with lock:
+                moves_this_round.append((row, col, cp))
+                last_message = f"Placed {cp}cp at ({row},{col})"
+                render_game(state, moves_this_round, revealed_board, last_message)
+
+    clear_screen()
+    print("=" * 40)
+    print("        GAME OVER!")
+    print("=" * 40)
+    time.sleep(2)
 
 
 # client flow
@@ -128,20 +329,25 @@ def main():
 
     time.sleep(1)
 
-    print("Joining lobby...")
-    try:
-        resp = api_join(token)
-    except requests.RequestException as e:
-        print(f"Error: could not connect to server: {e}")
-        sys.exit(1)
+    while True:
+        print("Joining lobby...")
+        try:
+            resp = api_join(token)
+        except requests.RequestException as e:
+            print(f"Error: could not connect to server: {e}")
+            sys.exit(1)
 
-    if "error" in resp:
-        print(f"Failed to join lobby: {resp['error']}")
-        sys.exit(1)
+        if "error" in resp:
+            print(f"Failed to join lobby: {resp['error']}")
+            sys.exit(1)
 
-    print("Joined lobby!")
+        print("Joined lobby!")
 
-    in_lobby(token)
+        in_lobby(token)
+        in_game(token)
+
+        print("Returning to lobby...")
+        time.sleep(1)
 
 
 if __name__ == "__main__":
