@@ -10,7 +10,6 @@ import (
 )
 
 type Player struct {
-	IsAdmin  bool
 	Token    string
 	Username string
 
@@ -42,17 +41,11 @@ type GameState struct {
 }
 
 var gs = &GameState{
-	Players: map[string]*Player{
-		AdminToken: {
-			IsAdmin:  true,
-			Username: "admin",
-			Token:    AdminToken,
-		},
-	},
+	Players: make(map[string]*Player),
 	WaitingPlayers: make(map[*Player]struct{}),
 	Games:          make(map[int]*Game),
 
-	UsedUsernames: map[string]struct{}{"admin": {}},
+	UsedUsernames: make(map[string]struct{}),
 }
 
 // Registers a player into the backend player store. The players username must

@@ -75,9 +75,7 @@ func adminOnly(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := r.Header.Get("Authorization")
 
-		p, exists := gs.playerFromToken(token)
-
-		if exists == false || p.IsAdmin == false {
+		if token != AdminToken {
 			http.NotFound(w, r)
 			return
 		}
