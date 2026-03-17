@@ -648,6 +648,39 @@ func (gs *GameState) handleKick() http.Handler {
 	})
 }
 
+func (gs *GameState) handlePlayerStats() http.Handler {
+	type playerInfo struct {
+		Username string `json:"username"`
+		Wins     int    `json:"wins"`
+		Losses   int    `json:"losses"`
+		Ties     int    `json:"ties"`
+	}
+	type playerStatsResponse struct {
+		Players []playerInfo `json:"players"`
+		Count   int          `json:"count"`
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gs.mu.RLock()
+		defer gs.mu.RUnlock()
+
+		players := make([]playerInfo, 0, len(gs.Players))
+		for _, p := range gs.Players {
+			players = append(players, playerInfo{
+				Username: p.Username,
+				Wins:     p.Wins,
+				Losses:   p.Losses,
+				Ties:     p.Ties,
+			})
+		}
+
+		encode(w, http.StatusOK, playerStatsResponse{
+			Players: players,
+			Count:   len(players),
+		})
+	})
+}
+
 // TODO:
 // test :(
 // update leaderboard.

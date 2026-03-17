@@ -68,7 +68,7 @@ def render_lobby(players, count, username=""):
     print("-" * 40)
     for p in players:
         name = p["username"]
-        record = f"{p['wins']}W/{p['losses']}L/{p['ties']}T"
+        record = f"{GREEN}{p['wins']}W{RESET}/{RED}{p['losses']}L{RESET}/{p['ties']}T"
         if name == username:
             print(f"  > {GREEN}{name}{RESET}  {record}")
         else:

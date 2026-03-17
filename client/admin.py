@@ -40,6 +40,10 @@ def api_kick(token, username):
     r = requests.post(f"{HOSTNAME}/kick", json={"username": username}, headers={"Authorization": token})
     return r.json()
 
+def api_player_stats(token):
+    r = requests.get(f"{HOSTNAME}/playerStats", headers={"Authorization": token})
+    return r.json()
+
 
 def phase_color(phase):
     if phase == "lobby":
@@ -64,7 +68,7 @@ def render_status(status, message=""):
     print(f"  Type 'help' for commands")
     print(f"{BOLD}{'=' * 40}{RESET}")
     if message:
-        print(f"  {YELLOW}{message}{RESET}")
+        print(f"  {message}{RESET}")
 
 
 def admin_monitor(token):
@@ -101,7 +105,7 @@ def admin_monitor(token):
 
         msg = ""
         if cmd == "help":
-            msg = "Commands: start, kick <username>, help, quit"
+            msg = f"{YELLOW}Commands: start, kick <username>, playerstats, help, quit{RESET}"
         elif cmd == "start":
             try:
                 resp = api_start(token)
@@ -111,7 +115,7 @@ def admin_monitor(token):
         elif cmd.startswith("kick "):
             username = cmd[5:].strip()
             if not username:
-                msg = "Usage: kick <username>"
+                msg = f"{YELLOW}Usage: kick <username>{RESET}"
             else:
                 try:
                     resp = api_kick(token, username)
@@ -119,11 +123,19 @@ def admin_monitor(token):
                 except requests.RequestException as e:
                     msg = f"{RED}Error: {e}{RESET}"
         elif cmd == "kick":
-            msg = "Usage: kick <username>"
+            msg = f"{YELLOW}Usage: kick <username>{RESET}"
+        elif cmd == "playerstats":
+            try:
+                resp = api_player_stats(token)
+                players = sorted(resp.get("players", []), key=lambda p: p["username"])
+                lines = [f"  {p['username']}  {GREEN}{p['wins']}W{RESET}/{RED}{p['losses']}L{RESET}/{p['ties']}T" for p in players]
+                msg = f"Players ({resp.get('count', 0)}):\n" + "\n".join(lines) if lines else "No players registered."
+            except requests.RequestException as e:
+                msg = f"{RED}Error: {e}{RESET}"
         elif cmd == "quit":
             break
         else:
-            msg = f"Unknown command: {cmd}. Type 'help' for commands."
+            msg = f"{YELLOW}Unknown command: {cmd}. Type 'help' for commands.{RESET}"
 
         with lock:
             last_message = msg
