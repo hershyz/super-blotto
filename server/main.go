@@ -24,7 +24,7 @@ func main() {
 	http.Handle("/kick", adminOnly(gs.handleKick()))
 	http.Handle("/playerStats", adminOnly(gs.handlePlayerStats()))
 
-	addr := ":3000"
+	addr := ":3001"
 	fmt.Printf("Server listening on %s\n", addr)
 	log.Fatal(http.ListenAndServe(addr, nil))
 }

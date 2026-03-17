@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 # consts
 HOSTNAME = ""
-PORT = "3000"
+PORT = "3001"
 
 # ANSI colors — basic 3/4-bit codes, supported on virtually every terminal
 RESET = "\033[0m"

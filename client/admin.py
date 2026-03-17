@@ -7,7 +7,7 @@ import requests
 
 # consts
 HOSTNAME = ""
-PORT = "3000"
+PORT = "3001"
 
 # ANSI colors — only the basic 3/4-bit codes, supported on virtually every terminal
 RESET = "\033[0m"
