@@ -9,6 +9,14 @@ import requests
 HOSTNAME = ""
 PORT = "3000"
 
+# ANSI colors — only the basic 3/4-bit codes, supported on virtually every terminal
+RESET = "\033[0m"
+BOLD = "\033[1m"
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+CYAN = "\033[36m"
+
 
 # admin api functions
 def api_admin_ping(token):
@@ -28,21 +36,39 @@ def api_start(token):
     r = requests.post(f"{HOSTNAME}/start", json={}, headers={"Authorization": token})
     return r.json()
 
+def api_kick(token, username):
+    r = requests.post(f"{HOSTNAME}/kick", json={"username": username}, headers={"Authorization": token})
+    return r.json()
+
+def api_player_stats(token):
+    r = requests.get(f"{HOSTNAME}/playerStats", headers={"Authorization": token})
+    return r.json()
+
+
+def phase_color(phase):
+    if phase == "lobby":
+        return YELLOW
+    if phase == "playing":
+        return GREEN
+    return CYAN
+
 
 def render_status(status, message=""):
     clear_screen()
-    print("=" * 40)
-    print("          ADMIN DASHBOARD")
-    print("=" * 40)
-    print(f"  Phase:      {status.get('phase')}")
-    print(f"  Round:      {status.get('round')}")
-    print(f"  Registered: {status.get('registeredCount')}")
-    print(f"  In lobby:   {status.get('waitingCount')}")
-    print("-" * 40)
-    print("  Commands: start, quit")
-    print("=" * 40)
+    print(RESET, end="", flush=True)
+    phase = status.get("phase", "")
+    print(f"{BOLD}{'=' * 40}")
+    print(f"          ADMIN DASHBOARD")
+    print(f"{'=' * 40}{RESET}")
+    print(f"  Phase:      {phase_color(phase)}{phase}{RESET}")
+    print(f"  Round:      {CYAN}{status.get('round')}{RESET}")
+    print(f"  Registered: {CYAN}{status.get('registeredCount')}{RESET}")
+    print(f"  In lobby:   {CYAN}{status.get('waitingCount')}{RESET}")
+    print(f"{BOLD}{'-' * 40}{RESET}")
+    print(f"  Type 'help' for commands")
+    print(f"{BOLD}{'=' * 40}{RESET}")
     if message:
-        print(f"  {message}")
+        print(f"  {message}{RESET}")
 
 
 def admin_monitor(token):
@@ -71,21 +97,45 @@ def admin_monitor(token):
 
     while True:
         try:
+            print(YELLOW, end="", flush=True)
             cmd = input().strip().lower()
+            print(RESET, end="", flush=True)
         except (EOFError, KeyboardInterrupt):
             break
 
         msg = ""
-        if cmd == "start":
+        if cmd == "help":
+            msg = f"{YELLOW}Commands: start, kick <username>, playerstats, help, quit{RESET}"
+        elif cmd == "start":
             try:
                 resp = api_start(token)
-                msg = f"start: {resp}" if "error" in resp else "Game started!"
+                msg = f"{RED}start: {resp}{RESET}" if "error" in resp else f"{GREEN}Game started!{RESET}"
             except requests.RequestException as e:
-                msg = f"Error: {e}"
+                msg = f"{RED}Error: {e}{RESET}"
+        elif cmd.startswith("kick "):
+            username = cmd[5:].strip()
+            if not username:
+                msg = f"{YELLOW}Usage: kick <username>{RESET}"
+            else:
+                try:
+                    resp = api_kick(token, username)
+                    msg = f"{RED}kick: {resp}{RESET}" if "error" in resp else f"{GREEN}Kicked {username}{RESET}"
+                except requests.RequestException as e:
+                    msg = f"{RED}Error: {e}{RESET}"
+        elif cmd == "kick":
+            msg = f"{YELLOW}Usage: kick <username>{RESET}"
+        elif cmd == "playerstats":
+            try:
+                resp = api_player_stats(token)
+                players = sorted(resp.get("players", []), key=lambda p: p["username"])
+                lines = [f"  {p['username']}  {GREEN}{p['wins']}W{RESET}/{RED}{p['losses']}L{RESET}/{p['ties']}T" for p in players]
+                msg = f"Players ({resp.get('count', 0)}):\n" + "\n".join(lines) if lines else "No players registered."
+            except requests.RequestException as e:
+                msg = f"{RED}Error: {e}{RESET}"
         elif cmd == "quit":
             break
         else:
-            msg = f"Unknown command: {cmd}"
+            msg = f"{YELLOW}Unknown command: {cmd}. Type 'help' for commands.{RESET}"
 
         with lock:
             last_message = msg
@@ -108,18 +158,18 @@ def main():
         print("No token provided, exiting.")
         sys.exit(1)
 
-    print("Pinging server...")
+    print(f"{CYAN}Pinging server...{RESET}")
     try:
         status = api_admin_ping(token)
     except requests.RequestException as e:
-        print(f"Error: could not connect to server: {e}")
+        print(f"{RED}Error: could not connect to server: {e}{RESET}")
         sys.exit(1)
 
     if status != 200:
-        print("Admin token not recognized by server.")
+        print(f"{RED}Admin token not recognized by server.{RESET}")
         sys.exit(1)
 
-    print("Admin token verified!")
+    print(f"{GREEN}Admin token verified!{RESET}")
 
     admin_monitor(token)
 

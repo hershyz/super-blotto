@@ -11,6 +11,13 @@ from datetime import datetime, timezone
 HOSTNAME = ""
 PORT = "3000"
 
+# ANSI colors — basic 3/4-bit codes, supported on virtually every terminal
+RESET = "\033[0m"
+BOLD = "\033[1m"
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+
 
 # client-facing api functions
 def api_register(username):
@@ -52,7 +59,7 @@ def clear_screen():
     os.system("cls" if os.name == "nt" else "clear")
 
 
-def render_lobby(players, count):
+def render_lobby(players, count, username=""):
     clear_screen()
     print("=" * 40)
     print("           SUPER BLOTTO LOBBY")
@@ -60,13 +67,18 @@ def render_lobby(players, count):
     print(f"  Players waiting: {count}")
     print("-" * 40)
     for p in players:
-        print(f"  > {p}")
+        name = p["username"]
+        record = f"{GREEN}{p['wins']}W{RESET}/{RED}{p['losses']}L{RESET}/{p['ties']}T"
+        if name == username:
+            print(f"  > {GREEN}{name}{RESET}  {record}")
+        else:
+            print(f"  > {name}  {record}")
     print("-" * 40)
     print("  Waiting for admin to start game...")
     print("=" * 40)
 
 
-def in_lobby(token):
+def in_lobby(token, username=""):
     prev_players = None
 
     while True:
@@ -89,15 +101,17 @@ def in_lobby(token):
         players = resp.get("players", [])
         count = resp.get("count", 0)
 
-        if sorted(players) != prev_players:
-            prev_players = sorted(players)
-            render_lobby(prev_players, count)
+        sorted_players = sorted(players, key=lambda p: p["username"])
+        if sorted_players != prev_players:
+            prev_players = sorted_players
+            render_lobby(prev_players, count, username)
 
         time.sleep(1)
 
 
 def render_game(state, moves_this_round, revealed_board, message=""):
     clear_screen()
+    print(RESET, end="", flush=True)
 
     round_num = state["round"]
     cp = state["command_points"]
@@ -105,11 +119,14 @@ def render_game(state, moves_this_round, revealed_board, message=""):
     board = state["board"]
     round_end_time = state["round_end_time"]
     phase = state["phase"]
+    username = state.get("username", "")
+    opponent = state.get("opponent", "")
 
     phase_display = phase.upper() if phase != "playing" else ""
     phase_str = f" | {phase_display}" if phase_display else ""
 
-    print(f"Round {round_num}/10 | CP: {cp}{phase_str} | You are Player {role}")
+    matchup = f"{GREEN}{username}{RESET} vs {RED}{opponent}{RESET}" if opponent else f"{GREEN}{username}{RESET}"
+    print(f"Round {round_num}/10 | CP: {cp}{phase_str} | {matchup}")
     print()
 
     if board is None:
@@ -134,14 +151,14 @@ def render_game(state, moves_this_round, revealed_board, message=""):
         for c in range(10):
             opp_board = revealed_board if revealed_board else board
             opp_cp = opp_board[r][c][1 - role]
-            top += f"{opp_cp:>4}|" if opp_cp else "    |"
+            top += f"{RED}{opp_cp:>4}{RESET}|" if opp_cp else "    |"
         print(top)
 
         # Bottom row: your CP
         bot = "  |"
         for c in range(10):
             my_cp = board[r][c][role]
-            bot += f"{my_cp:>4}|" if my_cp else "    |"
+            bot += f"{GREEN}{my_cp:>4}{RESET}|" if my_cp else "    |"
         print(bot)
 
     print(separator)
@@ -166,6 +183,9 @@ def render_game(state, moves_this_round, revealed_board, message=""):
         print(f"{remaining}s left in round | Enter move as: row,col,cp")
     else:
         print("Enter move as: row,col,cp")
+
+    # Keep yellow active for user input
+    print(YELLOW, end="", flush=True)
 
 
 def in_game(token):
@@ -213,10 +233,19 @@ def in_game(token):
                     "command_points": resp.get("commandPoints", 0),
                     "role": resp.get("role", 0),
                     "board": resp.get("board"),
+                    "username": resp.get("username", ""),
+                    "opponent": resp.get("opponent", ""),
                 }
 
                 if phase in ("lobby", "finished"):
-                    render_game(state, moves_this_round, None, last_message)
+                    clear_screen()
+                    print(RESET, end="", flush=True)
+                    print("=" * 40)
+                    print("        GAME OVER!")
+                    print("=" * 40)
+                    print()
+                    print("  Press Enter to return to lobby...")
+                    print(YELLOW, end="", flush=True)
                     game_over.set()
                     return
 
@@ -233,7 +262,9 @@ def in_game(token):
 
     while not game_over.is_set():
         try:
+            print(YELLOW, end="", flush=True)
             line = input().strip()
+            print(RESET, end="", flush=True)
         except (EOFError, KeyboardInterrupt):
             game_over.set()
             break
@@ -286,11 +317,7 @@ def in_game(token):
                 last_message = f"Placed {cp}cp at ({row},{col})"
                 render_game(state, moves_this_round, revealed_board, last_message)
 
-    clear_screen()
-    print("=" * 40)
-    print("        GAME OVER!")
-    print("=" * 40)
-    time.sleep(2)
+    print(RESET, end="", flush=True)
 
 
 # client flow
@@ -342,7 +369,7 @@ def main():
 
         print("Joined lobby!")
 
-        in_lobby(token)
+        in_lobby(token, username)
         in_game(token)
 
         print("Returning to lobby...")

@@ -523,6 +523,8 @@ func (gs *GameState) handleState() http.Handler {
 		CommandPoints int                            `json:"commandPoints"`
 		Role          int                            `json:"role"`
 		Board         *[GridHeight][GridWidth][2]int `json:"board,omitempty"`
+		Username      string                         `json:"username"`
+		Opponent      string                         `json:"opponent"`
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -539,12 +541,17 @@ func (gs *GameState) handleState() http.Handler {
 			Phase:        phaseStr(gs.Phase),
 			RoundEndTime: gs.RoundEndTime,
 			Role:         int(p.Role),
+			Username:     p.Username,
 		}
 
 		if p.GameID != NullGameID {
 			g, exists := gs.Games[p.GameID]
 			if exists {
 				resp.CommandPoints = g.CommandPoints[p.Role]
+				opponent := g.Players[1-p.Role]
+				if opponent != nil {
+					resp.Opponent = opponent.Username
+				}
 				var board [GridHeight][GridWidth][2]int
 				for row := 0; row < GridHeight; row++ {
 					for col := 0; col < GridWidth; col++ {
@@ -562,19 +569,30 @@ func (gs *GameState) handleState() http.Handler {
 // Returns the current lobby state: phase, player count, and list of waiting player usernames.
 // Wrapped with validate() so playerKey is always set in context.
 func (gs *GameState) handleLobbyState() http.Handler {
+	type playerInfo struct {
+		Username string `json:"username"`
+		Wins     int    `json:"wins"`
+		Losses   int    `json:"losses"`
+		Ties     int    `json:"ties"`
+	}
 	type lobbyStateResponse struct {
-		Phase   string   `json:"phase"`
-		Players []string `json:"players"`
-		Count   int      `json:"count"`
+		Phase   string       `json:"phase"`
+		Players []playerInfo `json:"players"`
+		Count   int          `json:"count"`
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gs.mu.RLock()
 		defer gs.mu.RUnlock()
 
-		players := make([]string, 0, len(gs.WaitingPlayers))
+		players := make([]playerInfo, 0, len(gs.WaitingPlayers))
 		for p := range gs.WaitingPlayers {
-			players = append(players, p.Username)
+			players = append(players, playerInfo{
+				Username: p.Username,
+				Wins:     p.Wins,
+				Losses:   p.Losses,
+				Ties:     p.Ties,
+			})
 		}
 
 		resp := lobbyStateResponse{
@@ -584,6 +602,82 @@ func (gs *GameState) handleLobbyState() http.Handler {
 		}
 
 		encode(w, http.StatusOK, resp)
+	})
+}
+
+func (gs *GameState) handleKick() http.Handler {
+	type kickRequest struct {
+		Username string `json:"username"`
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req, err := decode[kickRequest](r, http.MethodPost)
+		if err != nil {
+			encodeError(w, err)
+			return
+		}
+
+		if req.Username == "" {
+			encodeError(w, ErrUsernameRequired)
+			return
+		}
+
+		gs.mu.Lock()
+		defer gs.mu.Unlock()
+
+		// Find player by username
+		var target *Player
+		for _, p := range gs.Players {
+			if p.Username == req.Username {
+				target = p
+				break
+			}
+		}
+
+		if target == nil {
+			encodeError(w, fmt.Errorf("player not found: %s", req.Username))
+			return
+		}
+
+		delete(gs.Players, target.Token)
+		delete(gs.WaitingPlayers, target)
+		delete(gs.UsedUsernames, target.Username)
+
+		log.Printf("admin kicked player: %s", req.Username)
+		encode(w, http.StatusOK, struct{}{})
+	})
+}
+
+func (gs *GameState) handlePlayerStats() http.Handler {
+	type playerInfo struct {
+		Username string `json:"username"`
+		Wins     int    `json:"wins"`
+		Losses   int    `json:"losses"`
+		Ties     int    `json:"ties"`
+	}
+	type playerStatsResponse struct {
+		Players []playerInfo `json:"players"`
+		Count   int          `json:"count"`
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gs.mu.RLock()
+		defer gs.mu.RUnlock()
+
+		players := make([]playerInfo, 0, len(gs.Players))
+		for _, p := range gs.Players {
+			players = append(players, playerInfo{
+				Username: p.Username,
+				Wins:     p.Wins,
+				Losses:   p.Losses,
+				Ties:     p.Ties,
+			})
+		}
+
+		encode(w, http.StatusOK, playerStatsResponse{
+			Players: players,
+			Count:   len(players),
+		})
 	})
 }
 
