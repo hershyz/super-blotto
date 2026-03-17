@@ -605,6 +605,49 @@ func (gs *GameState) handleLobbyState() http.Handler {
 	})
 }
 
+func (gs *GameState) handleKick() http.Handler {
+	type kickRequest struct {
+		Username string `json:"username"`
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req, err := decode[kickRequest](r, http.MethodPost)
+		if err != nil {
+			encodeError(w, err)
+			return
+		}
+
+		if req.Username == "" {
+			encodeError(w, ErrUsernameRequired)
+			return
+		}
+
+		gs.mu.Lock()
+		defer gs.mu.Unlock()
+
+		// Find player by username
+		var target *Player
+		for _, p := range gs.Players {
+			if p.Username == req.Username {
+				target = p
+				break
+			}
+		}
+
+		if target == nil {
+			encodeError(w, fmt.Errorf("player not found: %s", req.Username))
+			return
+		}
+
+		delete(gs.Players, target.Token)
+		delete(gs.WaitingPlayers, target)
+		delete(gs.UsedUsernames, target.Username)
+
+		log.Printf("admin kicked player: %s", req.Username)
+		encode(w, http.StatusOK, struct{}{})
+	})
+}
+
 // TODO:
 // test :(
 // update leaderboard.

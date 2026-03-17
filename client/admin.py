@@ -36,6 +36,10 @@ def api_start(token):
     r = requests.post(f"{HOSTNAME}/start", json={}, headers={"Authorization": token})
     return r.json()
 
+def api_kick(token, username):
+    r = requests.post(f"{HOSTNAME}/kick", json={"username": username}, headers={"Authorization": token})
+    return r.json()
+
 
 def phase_color(phase):
     if phase == "lobby":
@@ -57,7 +61,7 @@ def render_status(status, message=""):
     print(f"  Registered: {CYAN}{status.get('registeredCount')}{RESET}")
     print(f"  In lobby:   {CYAN}{status.get('waitingCount')}{RESET}")
     print(f"{BOLD}{'-' * 40}{RESET}")
-    print(f"  Commands: start, quit")
+    print(f"  Type 'help' for commands")
     print(f"{BOLD}{'=' * 40}{RESET}")
     if message:
         print(f"  {YELLOW}{message}{RESET}")
@@ -96,16 +100,30 @@ def admin_monitor(token):
             break
 
         msg = ""
-        if cmd == "start":
+        if cmd == "help":
+            msg = "Commands: start, kick <username>, help, quit"
+        elif cmd == "start":
             try:
                 resp = api_start(token)
                 msg = f"{RED}start: {resp}{RESET}" if "error" in resp else f"{GREEN}Game started!{RESET}"
             except requests.RequestException as e:
                 msg = f"{RED}Error: {e}{RESET}"
+        elif cmd.startswith("kick "):
+            username = cmd[5:].strip()
+            if not username:
+                msg = "Usage: kick <username>"
+            else:
+                try:
+                    resp = api_kick(token, username)
+                    msg = f"{RED}kick: {resp}{RESET}" if "error" in resp else f"{GREEN}Kicked {username}{RESET}"
+                except requests.RequestException as e:
+                    msg = f"{RED}Error: {e}{RESET}"
+        elif cmd == "kick":
+            msg = "Usage: kick <username>"
         elif cmd == "quit":
             break
         else:
-            msg = f"Unknown command: {cmd}"
+            msg = f"Unknown command: {cmd}. Type 'help' for commands."
 
         with lock:
             last_message = msg

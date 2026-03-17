@@ -21,6 +21,7 @@ func main() {
 	http.Handle("/adminStatus", adminOnly(handleAdminStatus()))
 	http.Handle("/start", adminOnly(gs.handleStart()))
 	http.Handle("/lobby", adminOnly(gs.handleLobby()))
+	http.Handle("/kick", adminOnly(gs.handleKick()))
 
 	addr := ":3000"
 	fmt.Printf("Server listening on %s\n", addr)
