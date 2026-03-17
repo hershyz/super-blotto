@@ -67,10 +67,12 @@ def render_lobby(players, count, username=""):
     print(f"  Players waiting: {count}")
     print("-" * 40)
     for p in players:
-        if p == username:
-            print(f"  > {GREEN}{p}{RESET}")
+        name = p["username"]
+        record = f"{p['wins']}W/{p['losses']}L/{p['ties']}T"
+        if name == username:
+            print(f"  > {GREEN}{name}{RESET}  {record}")
         else:
-            print(f"  > {p}")
+            print(f"  > {name}  {record}")
     print("-" * 40)
     print("  Waiting for admin to start game...")
     print("=" * 40)
@@ -99,8 +101,9 @@ def in_lobby(token, username=""):
         players = resp.get("players", [])
         count = resp.get("count", 0)
 
-        if sorted(players) != prev_players:
-            prev_players = sorted(players)
+        sorted_players = sorted(players, key=lambda p: p["username"])
+        if sorted_players != prev_players:
+            prev_players = sorted_players
             render_lobby(prev_players, count, username)
 
         time.sleep(1)
@@ -235,7 +238,14 @@ def in_game(token):
                 }
 
                 if phase in ("lobby", "finished"):
-                    render_game(state, moves_this_round, None, last_message)
+                    clear_screen()
+                    print(RESET, end="", flush=True)
+                    print("=" * 40)
+                    print("        GAME OVER!")
+                    print("=" * 40)
+                    print()
+                    print("  Press Enter to return to lobby...")
+                    print(YELLOW, end="", flush=True)
                     game_over.set()
                     return
 
@@ -307,11 +317,7 @@ def in_game(token):
                 last_message = f"Placed {cp}cp at ({row},{col})"
                 render_game(state, moves_this_round, revealed_board, last_message)
 
-    clear_screen()
-    print("=" * 40)
-    print("        GAME OVER!")
-    print("=" * 40)
-    time.sleep(2)
+    print(RESET, end="", flush=True)
 
 
 # client flow
