@@ -523,6 +523,8 @@ func (gs *GameState) handleState() http.Handler {
 		CommandPoints int                            `json:"commandPoints"`
 		Role          int                            `json:"role"`
 		Board         *[GridHeight][GridWidth][2]int `json:"board,omitempty"`
+		Username      string                         `json:"username"`
+		Opponent      string                         `json:"opponent"`
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -539,12 +541,17 @@ func (gs *GameState) handleState() http.Handler {
 			Phase:        phaseStr(gs.Phase),
 			RoundEndTime: gs.RoundEndTime,
 			Role:         int(p.Role),
+			Username:     p.Username,
 		}
 
 		if p.GameID != NullGameID {
 			g, exists := gs.Games[p.GameID]
 			if exists {
 				resp.CommandPoints = g.CommandPoints[p.Role]
+				opponent := g.Players[1-p.Role]
+				if opponent != nil {
+					resp.Opponent = opponent.Username
+				}
 				var board [GridHeight][GridWidth][2]int
 				for row := 0; row < GridHeight; row++ {
 					for col := 0; col < GridWidth; col++ {

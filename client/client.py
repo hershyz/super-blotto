@@ -116,11 +116,14 @@ def render_game(state, moves_this_round, revealed_board, message=""):
     board = state["board"]
     round_end_time = state["round_end_time"]
     phase = state["phase"]
+    username = state.get("username", "")
+    opponent = state.get("opponent", "")
 
     phase_display = phase.upper() if phase != "playing" else ""
     phase_str = f" | {phase_display}" if phase_display else ""
 
-    print(f"Round {round_num}/10 | CP: {cp}{phase_str} | You are Player {role}")
+    matchup = f"{GREEN}{username}{RESET} vs {RED}{opponent}{RESET}" if opponent else f"{GREEN}{username}{RESET}"
+    print(f"Round {round_num}/10 | CP: {cp}{phase_str} | {matchup}")
     print()
 
     if board is None:
@@ -227,6 +230,8 @@ def in_game(token):
                     "command_points": resp.get("commandPoints", 0),
                     "role": resp.get("role", 0),
                     "board": resp.get("board"),
+                    "username": resp.get("username", ""),
+                    "opponent": resp.get("opponent", ""),
                 }
 
                 if phase in ("lobby", "finished"):
