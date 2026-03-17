@@ -1,8 +1,10 @@
 import os
 import sys
 import time
+import json
 import threading
-import requests
+import urllib.request
+import urllib.error
 
 
 # consts
@@ -18,14 +20,31 @@ YELLOW = "\033[33m"
 CYAN = "\033[36m"
 
 
+# http helpers
+def _post(url, data, headers=None):
+    body = json.dumps(data).encode()
+    req = urllib.request.Request(url, data=body, headers=headers or {}, method="POST")
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
+
+def _get(url, headers=None):
+    req = urllib.request.Request(url, headers=headers or {})
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
+
+def _get_status(url, headers=None):
+    req = urllib.request.Request(url, headers=headers or {})
+    with urllib.request.urlopen(req) as resp:
+        return resp.status
+
+
 # admin api functions
 def api_admin_ping(token):
-    r = requests.get(f"{HOSTNAME}/adminPing", headers={"Authorization": token})
-    return r.status_code
+    return _get_status(f"{HOSTNAME}/adminPing", {"Authorization": token})
 
 def api_admin_status(token):
-    r = requests.get(f"{HOSTNAME}/adminStatus", headers={"Authorization": token})
-    return r.json()
+    return _get(f"{HOSTNAME}/adminStatus", {"Authorization": token})
 
 
 def clear_screen():
@@ -33,16 +52,13 @@ def clear_screen():
 
 
 def api_start(token):
-    r = requests.post(f"{HOSTNAME}/start", json={}, headers={"Authorization": token})
-    return r.json()
+    return _post(f"{HOSTNAME}/start", {}, {"Authorization": token})
 
 def api_kick(token, username):
-    r = requests.post(f"{HOSTNAME}/kick", json={"username": username}, headers={"Authorization": token})
-    return r.json()
+    return _post(f"{HOSTNAME}/kick", {"username": username}, {"Authorization": token})
 
 def api_player_stats(token):
-    r = requests.get(f"{HOSTNAME}/playerStats", headers={"Authorization": token})
-    return r.json()
+    return _get(f"{HOSTNAME}/playerStats", {"Authorization": token})
 
 
 def phase_color(phase):
@@ -81,7 +97,7 @@ def admin_monitor(token):
         while True:
             try:
                 status = api_admin_status(token)
-            except requests.RequestException:
+            except (urllib.error.URLError, urllib.error.HTTPError):
                 time.sleep(2)
                 continue
 
@@ -110,7 +126,7 @@ def admin_monitor(token):
             try:
                 resp = api_start(token)
                 msg = f"{RED}start: {resp}{RESET}" if "error" in resp else f"{GREEN}Game started!{RESET}"
-            except requests.RequestException as e:
+            except (urllib.error.URLError, urllib.error.HTTPError) as e:
                 msg = f"{RED}Error: {e}{RESET}"
         elif cmd.startswith("kick "):
             username = cmd[5:].strip()
@@ -120,7 +136,7 @@ def admin_monitor(token):
                 try:
                     resp = api_kick(token, username)
                     msg = f"{RED}kick: {resp}{RESET}" if "error" in resp else f"{GREEN}Kicked {username}{RESET}"
-                except requests.RequestException as e:
+                except (urllib.error.URLError, urllib.error.HTTPError) as e:
                     msg = f"{RED}Error: {e}{RESET}"
         elif cmd == "kick":
             msg = f"{YELLOW}Usage: kick <username>{RESET}"
@@ -130,7 +146,7 @@ def admin_monitor(token):
                 players = sorted(resp.get("players", []), key=lambda p: p["username"])
                 lines = [f"  {p['username']}  {GREEN}{p['wins']}W{RESET}/{RED}{p['losses']}L{RESET}/{p['ties']}T" for p in players]
                 msg = f"Players ({resp.get('count', 0)}):\n" + "\n".join(lines) if lines else "No players registered."
-            except requests.RequestException as e:
+            except (urllib.error.URLError, urllib.error.HTTPError) as e:
                 msg = f"{RED}Error: {e}{RESET}"
         elif cmd == "quit":
             break
@@ -161,7 +177,7 @@ def main():
     print(f"{CYAN}Pinging server...{RESET}")
     try:
         status = api_admin_ping(token)
-    except requests.RequestException as e:
+    except (urllib.error.URLError, urllib.error.HTTPError) as e:
         print(f"{RED}Error: could not connect to server: {e}{RESET}")
         sys.exit(1)
 

@@ -2,8 +2,10 @@
 import os
 import sys
 import time
+import json
 import threading
-import requests
+import urllib.request
+import urllib.error
 from datetime import datetime, timezone
 
 
@@ -19,40 +21,46 @@ GREEN = "\033[32m"
 YELLOW = "\033[33m"
 
 
+# http helpers
+def _post(url, data, headers=None):
+    body = json.dumps(data).encode()
+    req = urllib.request.Request(url, data=body, headers=headers or {}, method="POST")
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
+
+def _get(url, headers=None):
+    req = urllib.request.Request(url, headers=headers or {})
+    with urllib.request.urlopen(req) as resp:
+        return json.loads(resp.read())
+
+
 # client-facing api functions
 def api_register(username):
-    r = requests.post(f"{HOSTNAME}/register", json={"username": username})
-    return r.json()
+    return _post(f"{HOSTNAME}/register", {"username": username})
 
 def api_join(token):
-    r = requests.post(f"{HOSTNAME}/join", json={}, headers={"Authorization": token})
-    return r.json()
+    return _post(f"{HOSTNAME}/join", {}, {"Authorization": token})
 
 def api_leave(token):
-    r = requests.post(f"{HOSTNAME}/leave", json={}, headers={"Authorization": token})
-    return r.json()
+    return _post(f"{HOSTNAME}/leave", {}, {"Authorization": token})
 
 def api_move(token, round_num, row, col, cp):
-    r = requests.post(f"{HOSTNAME}/move", json={
+    return _post(f"{HOSTNAME}/move", {
         "round": round_num, "row": row, "col": col, "commandPoints": cp
-    }, headers={"Authorization": token})
-    return r.json()
+    }, {"Authorization": token})
 
 def api_state(token):
-    r = requests.get(f"{HOSTNAME}/state", headers={"Authorization": token})
-    return r.json()
+    return _get(f"{HOSTNAME}/state", {"Authorization": token})
 
 def api_start(token):
-    r = requests.post(f"{HOSTNAME}/start", json={}, headers={"Authorization": token})
-    return r.json()
+    return _post(f"{HOSTNAME}/start", {}, {"Authorization": token})
 
 def api_lobby(token):
-    r = requests.post(f"{HOSTNAME}/lobby", json={}, headers={"Authorization": token})
-    return r.json()
+    return _post(f"{HOSTNAME}/lobby", {}, {"Authorization": token})
 
 def api_lobby_state(token):
-    r = requests.get(f"{HOSTNAME}/lobbyState", headers={"Authorization": token})
-    return r.json()
+    return _get(f"{HOSTNAME}/lobbyState", {"Authorization": token})
 
 
 def clear_screen():
@@ -84,7 +92,7 @@ def in_lobby(token, username=""):
     while True:
         try:
             resp = api_lobby_state(token)
-        except requests.RequestException as e:
+        except (urllib.error.URLError, urllib.error.HTTPError) as e:
             print(f"Error polling lobby: {e}")
             time.sleep(2)
             continue
@@ -211,7 +219,7 @@ def in_game(token):
         while not game_over.is_set():
             try:
                 resp = api_state(token)
-            except requests.RequestException:
+            except (urllib.error.URLError, urllib.error.HTTPError):
                 time.sleep(2)
                 continue
 
@@ -301,7 +309,7 @@ def in_game(token):
 
         try:
             resp = api_move(token, current_round, row, col, cp)
-        except requests.RequestException as e:
+        except (urllib.error.URLError, urllib.error.HTTPError) as e:
             with lock:
                 last_message = f"Network error: {e}"
                 render_game(state, moves_this_round, revealed_board, last_message)
@@ -338,7 +346,7 @@ def main():
     print(f"Registering as '{username}'...")
     try:
         resp = api_register(username)
-    except requests.RequestException as e:
+    except (urllib.error.URLError, urllib.error.HTTPError) as e:
         print(f"Error: could not connect to server: {e}")
         sys.exit(1)
 
@@ -359,7 +367,7 @@ def main():
         print("Joining lobby...")
         try:
             resp = api_join(token)
-        except requests.RequestException as e:
+        except (urllib.error.URLError, urllib.error.HTTPError) as e:
             print(f"Error: could not connect to server: {e}")
             sys.exit(1)
 
