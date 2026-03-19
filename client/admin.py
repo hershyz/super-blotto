@@ -114,7 +114,7 @@ def admin_monitor(token):
     while True:
         try:
             print(YELLOW, end="", flush=True)
-            cmd = input().strip().lower()
+            cmd = input("> ").strip().lower()
             print(RESET, end="", flush=True)
         except (EOFError, KeyboardInterrupt):
             break
