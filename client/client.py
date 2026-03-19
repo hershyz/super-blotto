@@ -330,7 +330,7 @@ def in_game(token):
 
 # client flow
 def main():
-    host = input("Enter server host (e.g. http://localhost): ").strip()
+    host = input("Enter server host (e.g. http://localhost): ").strip().rstrip("/")
     if not host:
         print("No host provided, exiting.")
         sys.exit(1)
