@@ -188,9 +188,9 @@ def render_game(state, moves_this_round, revealed_board, message=""):
             remaining = max(0, int((end_dt - datetime.now(timezone.utc)).total_seconds()))
         except (ValueError, TypeError):
             remaining = 0
-        print(f"{remaining}s left in round | Enter move as: row,col,cp")
+        print(f"{remaining}s left in round | Enter move as: row col cp")
     else:
-        print("Enter move as: row,col,cp")
+        print("Enter move as: row col cp")
 
     # Keep yellow active for user input
     print(YELLOW, end="", flush=True)
@@ -283,10 +283,10 @@ def in_game(token):
         if not line:
             continue
 
-        parts = line.split(",")
+        parts = line.split()
         if len(parts) != 3:
             with lock:
-                last_message = "Invalid format. Use: row,col,cp"
+                last_message = "Invalid format. Use: row col cp"
                 render_game(state, moves_this_round, revealed_board, last_message)
             continue
 
@@ -294,7 +294,7 @@ def in_game(token):
             row, col, cp = int(parts[0]), int(parts[1]), int(parts[2])
         except ValueError:
             with lock:
-                last_message = "Invalid numbers. Use: row,col,cp"
+                last_message = "Invalid numbers. Use: row col cp"
                 render_game(state, moves_this_round, revealed_board, last_message)
             continue
 

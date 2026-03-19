@@ -40,6 +40,7 @@ var (
 	ErrNoParticipants  = errors.New("no participants have joined yet")
 	ErrOddParticipants = errors.New("game can only start if an even number of participants join")
 	ErrInLobby         = errors.New("game is already in lobby")
+	ErrServerFull      = errors.New("server is full")
 
 	// 500 Interval Server Error
 	ErrGeneratingToken = errors.New("failed to generate token")
@@ -71,6 +72,7 @@ var ErrorToStatus = map[error]int{
 	ErrNoParticipants:  http.StatusConflict,
 	ErrOddParticipants: http.StatusConflict,
 	ErrInLobby:         http.StatusConflict,
+	ErrServerFull:      http.StatusConflict,
 
 	// 500 Interval Server Error
 	ErrGeneratingToken: http.StatusInternalServerError,
@@ -100,6 +102,7 @@ const (
 	InitialCommandPoints = 1000
 	TotalRounds          = 10
 	TimePerRound         = 30
+	MaxPlayers           = 500
 )
 
 type GamePhase int

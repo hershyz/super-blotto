@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
+	"os"
+	"sort"
 	"sync"
 	"time"
 )
@@ -56,6 +59,10 @@ var gs = &GameState{
 func (gs *GameState) registerPlayer(username, token string) error {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
+
+	if len(gs.Players) >= MaxPlayers {
+		return ErrServerFull
+	}
 
 	if _, exists := gs.UsedUsernames[username]; exists {
 		return ErrUsernameTaken
@@ -123,6 +130,9 @@ func (gs *GameState) endGame() {
 
 	wg.Wait()
 
+	// Persist leaderboard before resetting
+	gs.saveLeaderboard()
+
 	// Automatically reopen the lobby
 	clear(gs.Games)
 	gs.Round = 0
@@ -135,6 +145,44 @@ func (gs *GameState) endGame() {
 	}
 
 	log.Println("game finished, lobby reopened")
+}
+
+// saveLeaderboard writes the current leaderboard to leaderboard.json.
+// Must be called while holding gs.mu.
+func (gs *GameState) saveLeaderboard() {
+	type entry struct {
+		Username string `json:"username"`
+		Wins     int    `json:"wins"`
+		Losses   int    `json:"losses"`
+		Ties     int    `json:"ties"`
+	}
+
+	entries := make([]entry, 0, len(gs.Leaderboard))
+	for _, p := range gs.Leaderboard {
+		entries = append(entries, entry{
+			Username: p.Username,
+			Wins:     p.Wins,
+			Losses:   p.Losses,
+			Ties:     p.Ties,
+		})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Wins > entries[j].Wins
+	})
+
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		log.Printf("failed to marshal leaderboard: %v", err)
+		return
+	}
+
+	if err := os.WriteFile("leaderboard.json", data, 0644); err != nil {
+		log.Printf("failed to write leaderboard.json: %v", err)
+		return
+	}
+
+	log.Println("leaderboard saved to leaderboard.json")
 }
 
 func (gs *GameState) playerFromToken(token string) (*Player, bool) {
